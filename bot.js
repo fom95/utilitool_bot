@@ -4,8 +4,46 @@ const CACHE = env => env.UTILITOOL_BOT_CACHE;
 const SESSION_TTL = 15 * 60;
 
 async function telegram(env, method, body = null) {
+    const token =
+        BOT_TOKEN(env);
+
+    console.error(
+        "Telegram token diagnostics:",
+        JSON.stringify({
+            exists: !!token,
+            type: typeof token,
+            length: token?.length || 0,
+            colonIndex:
+                typeof token === "string"
+                    ? token.indexOf(":")
+                    : -1,
+            startsWithBot:
+                typeof token === "string"
+                    ? token.startsWith("bot")
+                    : false,
+            firstChars:
+                typeof token === "string"
+                    ? token.slice(0, 4)
+                    : "",
+            lastChars:
+                typeof token === "string"
+                    ? token.slice(-4)
+                    : ""
+        })
+    );
+
+    if (
+        typeof token !== "string" ||
+        !token ||
+        !token.includes(":")
+    ) {
+        throw new Error(
+            "TELEGRAM_BOT_TOKEN is missing or invalid in the Worker environment."
+        );
+    }
+
     const url =
-        `https://api.telegram.org/bot${BOT_TOKEN(env)}/${method}`;
+        `https://api.telegram.org/bot${token}/${method}`;
 
     const options = {
         method: body ? "POST" : "GET",
