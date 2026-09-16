@@ -237,13 +237,13 @@ tg.expand();
 
 const params =
     new URLSearchParams(
-        window.location.search
+        location.search
     );
 
 const session =
     params.get("session") ||
-    tg.initDataUnsafe
-        ?.start_param ||
+    params.get("tgWebAppStartParam") ||
+    tg.initDataUnsafe?.start_param ||
     "";
 
 const cropArea =
