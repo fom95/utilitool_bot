@@ -1,4 +1,4 @@
-const TOKEN = "8798396550:AAE2l7I8Whj-7Ufz2MYCtidQ4nIXnH706h8";
+const TOKEN = env.TELEGRAM_BOT_TOKEN.get();
 const sharp =
     require("sharp");
 
