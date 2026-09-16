@@ -1,14 +1,6 @@
 {
-  "name": "telegram-guest-test",
+  "name": "utilitool-bot",
   "version": "1.0.0",
-  "description": "",
-  "main": "index.js",
-  "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1"
-  },
-  "keywords": [],
-  "type": "commonjs",
-  "dependencies": {
-    "sharp": "^0.35.4"
-  }
+  "private": true,
+  "type": "module"
 }
