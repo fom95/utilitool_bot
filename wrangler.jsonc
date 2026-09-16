@@ -13,8 +13,8 @@
 
   "kv_namespaces": [
     {
-      "binding": "MTKRUTO_CACHE",
-      "id": "2fb2beb6903843dca8606cde0633311b"
+      "binding": "UTILITOOL_BOT_CACHE",
+      "id": "caf5087e8e1c46cfb8d9caa157840038"
     }
   ],
 
