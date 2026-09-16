@@ -1,1349 +1,109 @@
-const TOKEN = env.TELEGRAM_BOT_TOKEN.get();
-const sharp =
-    require("sharp");
+const BOT_TOKEN = env => env.TELEGRAM_BOT_TOKEN;
+const CACHE = env => env.UTILITOOL_BOT_CACHE;
 
-const API =
-    `https://api.telegram.org/bot${TOKEN}`;
+const SESSION_TTL = 15 * 60;
 
-let offset = 0;
+async function telegram(env, method, body = null) {
+    const url =
+        `https://api.telegram.org/bot${BOT_TOKEN(env)}/${method}`;
 
-let botId = null;
-let botUsername = null;
-
-
-/* =========================
-   Telegram API
-========================= */
-
-async function api(method, params = {}) {
-    const response =
-        await fetch(
-            `${API}/${method}`,
-            {
-                method: "POST",
-                headers: {
-                    "Content-Type":
-                        "application/json"
-                },
-                body:
-                    JSON.stringify(params)
-            }
-        );
-
-    return await response.json();
-}
-
-
-async function sendMessage(
-    chatId,
-    text,
-    replyMarkup = null
-) {
-    const params = {
-        chat_id: chatId,
-        text,
-        parse_mode: "HTML"
+    const options = {
+        method: body ? "POST" : "GET",
+        headers: {}
     };
 
-    if (replyMarkup) {
-        params.reply_markup =
-            replyMarkup;
-    }
+    if (body) {
+        options.headers["Content-Type"] =
+            "application/json";
 
-    const result =
-        await api(
-            "sendMessage",
-            params
-        );
-
-    if (result.ok) {
-        trackBotMessage(
-            chatId,
-            result.result.message_id
-        );
-    }
-
-    return result;
-}
-
-
-async function sendPhoto(
-    chatId,
-    fileBuffer,
-    caption = "",
-    replyMarkup = null
-) {
-    const form =
-        new FormData();
-
-    form.append(
-        "chat_id",
-        String(chatId)
-    );
-
-    form.append(
-        "photo",
-        new Blob(
-            [fileBuffer],
-            {
-                type: "image/jpeg"
-            }
-        ),
-        "preview.jpg"
-    );
-
-    if (caption) {
-        form.append(
-            "caption",
-            caption
-        );
-
-        form.append(
-            "parse_mode",
-            "HTML"
-        );
-    }
-
-    if (replyMarkup) {
-        form.append(
-            "reply_markup",
-            JSON.stringify(
-                replyMarkup
-            )
-        );
+        options.body =
+            JSON.stringify(body);
     }
 
     const response =
-        await fetch(
-            `${API}/sendPhoto`,
-            {
-                method: "POST",
-                body: form
-            }
-        );
+        await fetch(url, options);
 
-    const result =
+    const data =
         await response.json();
 
-    if (result.ok) {
-        trackBotMessage(
-            chatId,
-            result.result.message_id
+    if (!data.ok) {
+        throw new Error(
+            `${method}: ${data.description || "Telegram API error"}`
         );
     }
 
-    return result;
+    return data.result;
 }
 
-
-async function answerCallback(
-    callbackId,
-    text = ""
-) {
-    return await api(
-        "answerCallbackQuery",
-        {
-            callback_query_id:
-                callbackId,
-            text
-        }
-    );
+async function sendMessage(env, chatId, text, extra = {}) {
+    return telegram(env, "sendMessage", {
+        chat_id: chatId,
+        text,
+        ...extra
+    });
 }
 
-
-async function deleteMessage(
-    chatId,
-    messageId
-) {
-    return await api(
-        "deleteMessage",
-        {
+async function deleteMessage(env, chatId, messageId) {
+    try {
+        await telegram(env, "deleteMessage", {
             chat_id: chatId,
             message_id: messageId
-        }
-    );
+        });
+    } catch {}
 }
 
-
-async function leaveChat(chatId) {
-    return await api(
-        "leaveChat",
-        {
+async function leaveChat(env, chatId) {
+    try {
+        await telegram(env, "leaveChat", {
             chat_id: chatId
-        }
-    );
+        });
+    } catch {}
 }
 
-
-/* =========================
-   Media
-========================= */
-
-async function setChatPhoto(
-    chatId,
-    fileBuffer
-) {
-    const form =
-        new FormData();
-
-    form.append(
-        "chat_id",
-        String(chatId)
-    );
-
-    form.append(
-        "photo",
-        new Blob(
-            [fileBuffer],
-            {
-                type: "image/jpeg"
-            }
-        ),
-        "photo.jpg"
-    );
-
-    const response =
-        await fetch(
-            `${API}/setChatPhoto`,
-            {
-                method: "POST",
-                body: form
-            }
-        );
-
-    return await response.json();
+async function answerCallback(env, callbackId) {
+    try {
+        await telegram(env, "answerCallbackQuery", {
+            callback_query_id: callbackId
+        });
+    } catch {}
 }
 
+async function getBot(env) {
+    return telegram(env, "getMe");
+}
 
-async function downloadTelegramPhoto(
-    fileId
-) {
+async function getFile(env, fileId) {
+    return telegram(env, "getFile", {
+        file_id: fileId
+    });
+}
+
+async function downloadTelegramFile(env, fileId) {
     const file =
-        await api(
-            "getFile",
-            {
-                file_id: fileId
-            }
-        );
+        await getFile(env, fileId);
 
-    if (!file.ok) {
-        throw new Error(
-            `getFile failed: ${
-                file.description ||
-                "Unknown error"
-            }`
-        );
+    if (!file.file_path) {
+        throw new Error("Telegram did not return a file path.");
     }
 
     const response =
         await fetch(
-            `https://api.telegram.org/file/bot${TOKEN}/${file.result.file_path}`
+            `https://api.telegram.org/file/bot${BOT_TOKEN(env)}/${file.file_path}`
         );
 
     if (!response.ok) {
         throw new Error(
-            `Download failed: ${
-                response.status
-            } ${
-                response.statusText
-            }`
+            `Telegram file download failed: ${response.status}`
         );
     }
 
-    return Buffer.from(
-        await response.arrayBuffer()
-    );
-}
-
-
-/* =========================
-   Menus
-========================= */
-
-function mainMenu() {
     return {
-        inline_keyboard: [
-            [
-                {
-                    text:
-                        "Change Profile Photo",
-                    callback_data:
-                        "photo"
-                }
-            ],
-            [
-                {
-                    text: "Bye",
-                    callback_data:
-                        "bye"
-                }
-            ]
-        ]
+        response,
+        file
     };
 }
 
-
-function photoMenu() {
-    return {
-        inline_keyboard: [
-            [
-                {
-                    text: "Cancel",
-                    callback_data:
-                        "cancel"
-                }
-            ]
-        ]
-    };
-}
-
-
-function cropMenu() {
-    return {
-        inline_keyboard: [
-            [
-                {
-                    text: "◀",
-                    callback_data:
-                        "crop:left"
-                },
-                {
-                    text: "▶",
-                    callback_data:
-                        "crop:right"
-                }
-            ],
-            [
-                {
-                    text: "▲",
-                    callback_data:
-                        "crop:up"
-                },
-                {
-                    text: "▼",
-                    callback_data:
-                        "crop:down"
-                }
-            ],
-            [
-                {
-                    text: "−",
-                    callback_data:
-                        "crop:zoomout"
-                },
-                {
-                    text: "+",
-                    callback_data:
-                        "crop:zoomin"
-                }
-            ],
-            [
-                {
-                    text:
-                        "Set Profile Photo",
-                    callback_data:
-                        "crop:set"
-                }
-            ],
-            [
-                {
-                    text: "Cancel",
-                    callback_data:
-                        "crop:cancel"
-                }
-            ]
-        ]
-    };
-}
-
-
-/* =========================
-   Chat state
-========================= */
-
-const chatState =
-    new Map();
-
-
-function createUserState() {
-    return {
-        messages:
-            new Set()
-    };
-}
-
-
-function getState(chatId) {
-    if (!chatState.has(chatId)) {
-        chatState.set(
-            chatId,
-            {
-                botMessages:
-                    new Set(),
-
-                users:
-                    new Map(),
-
-                crop:
-                    null
-            }
-        );
-    }
-
-    return chatState.get(chatId);
-}
-
-
-function getUserState(
-    chatId,
-    userId
-) {
-    const state =
-        getState(chatId);
-
-    if (!state.users.has(userId)) {
-        state.users.set(
-            userId,
-            createUserState()
-        );
-    }
-
-    return state.users.get(
-        userId
-    );
-}
-
-
-function trackBotMessage(
-    chatId,
-    messageId
-) {
-    const state =
-        getState(chatId);
-
-    state.botMessages.add(
-        messageId
-    );
-}
-
-
-function trackUserMessage(
-    chatId,
-    userId,
-    messageId
-) {
-    if (!userId) {
-        return;
-    }
-
-    const userState =
-        getUserState(
-            chatId,
-            userId
-        );
-
-    userState.messages.add(
-        messageId
-    );
-}
-
-
-/* =========================
-   User interaction detection
-========================= */
-
-function messageMentionsBot(
-    message
-) {
-    if (!message.entities) {
-        return false;
-    }
-
-    const text =
-        message.text || "";
-
-    for (
-        const entity
-        of message.entities
-    ) {
-        if (
-            entity.type !==
-            "mention"
-        ) {
-            continue;
-        }
-
-        const mention =
-            text.slice(
-                entity.offset,
-                entity.offset +
-                    entity.length
-            );
-
-        if (
-            mention.toLowerCase() ===
-            `@${botUsername}`.toLowerCase()
-        ) {
-            return true;
-        }
-    }
-
-    return false;
-}
-
-
-function repliesToBotMessage(
-    message,
-    chatId
-) {
-    const reply =
-        message.reply_to_message;
-
-    if (!reply) {
-        return false;
-    }
-
-    const state =
-        chatState.get(chatId);
-
-    if (!state) {
-        return false;
-    }
-
-    return state.botMessages.has(
-        reply.message_id
-    );
-}
-
-
-function isBotInteractionMessage(
-    message
-) {
-    const chatId =
-        message.chat.id;
-
-    return (
-        messageMentionsBot(
-            message
-        ) ||
-        repliesToBotMessage(
-            message,
-            chatId
-        )
-    );
-}
-
-
-function trackInteractionMessage(
-    message
-) {
-    if (!message.from) {
-        return;
-    }
-
-    if (
-        isBotInteractionMessage(
-            message
-        )
-    ) {
-        trackUserMessage(
-            message.chat.id,
-            message.from.id,
-            message.message_id
-        );
-    }
-}
-
-
-/* =========================
-   User mentions
-========================= */
-
-function mentionUser(user) {
-    const name =
-        user.username ||
-        user.first_name ||
-        "there";
-
-    return (
-        `<a href="tg://user?id=${user.id}">` +
-        `@${escapeHtml(name)}` +
-        `</a>`
-    );
-}
-
-
-function escapeHtml(text) {
-    return String(text)
-        .replaceAll(
-            "&",
-            "&amp;"
-        )
-        .replaceAll(
-            "<",
-            "&lt;"
-        )
-        .replaceAll(
-            ">",
-            "&gt;"
-        )
-        .replaceAll(
-            '"',
-            "&quot;"
-        );
-}
-
-
-async function sendUserMessage(
-    chatId,
-    user,
-    text,
-    replyMarkup = null
-) {
-    const finalText =
-        user
-            ? `${mentionUser(user)}, ${text}`
-            : text;
-
-    return await sendMessage(
-        chatId,
-        finalText,
-        replyMarkup
-    );
-}
-
-
-/* =========================
-   Main menu
-========================= */
-
-async function showMainMenu(
-    chatId,
-    user = null
-) {
-    const text =
-        user
-            ? `${mentionUser(user)}, what would you like me to do?`
-            : "What would you like me to do?";
-
-    return await sendMessage(
-        chatId,
-        text,
-        mainMenu()
-    );
-}
-
-
-/* =========================
-   Bot added
-========================= */
-
-async function handleNewChatMember(
-    message
-) {
-    const newMembers =
-        message.new_chat_members ||
-        [];
-
-    const wasBotAdded =
-        newMembers.some(
-            member =>
-                member.id === botId
-        );
-
-    if (!wasBotAdded) {
-        return;
-    }
-
-    const chatId =
-        message.chat.id;
-
-    getState(chatId);
-
-    await showMainMenu(
-        chatId,
-        message.from || null
-    );
-}
-
-
-/* =========================
-   Normal messages
-========================= */
-
-async function handleTextMessage(
-    message
-) {
-    trackInteractionMessage(
-        message
-    );
-}
-
-
-/* =========================
-   Photo button
-========================= */
-
-async function handlePhotoAction(callback) {
-    const message = callback.message;
-
-    if (!message) {
-        return;
-    }
-
-    const chatId = message.chat.id;
-    const user = callback.from;
-    const state = getState(chatId);
-
-    state.cropUserId = user.id;
-    state.cropUser = user;
-
-    await answerCallback(callback.id);
-
-    await sendUserMessage(
-        chatId,
-        user,
-        "reply to the image you want to use with `/setphoto`.",
-        photoMenu()
-    );
-}
-
-
-/* =========================
-   Crop helpers
-========================= */
-
-async function getImageMetadata(
-    buffer
-) {
-    return await sharp(buffer)
-        .metadata();
-}
-
-
-function clamp(
-    value,
-    min,
-    max
-) {
-    return Math.max(
-        min,
-        Math.min(
-            max,
-            value
-        )
-    );
-}
-
-
-function getCropDimensions(
-    width,
-    height,
-    zoom
-) {
-    const baseSize =
-        Math.min(
-            width,
-            height
-        );
-
-    const safeZoom =
-        Math.max(
-            1,
-            Number(zoom) || 1
-        );
-
-    const size =
-        Math.max(
-            1,
-            Math.round(
-                baseSize /
-                    safeZoom
-            )
-        );
-
-    return {
-        width:
-            Math.min(
-                size,
-                width
-            ),
-
-        height:
-            Math.min(
-                size,
-                height
-            )
-    };
-}
-
-
-function updateCropBounds(
-    crop
-) {
-    const width =
-        crop.imageWidth;
-
-    const height =
-        crop.imageHeight;
-
-    const {
-        width: cropWidth,
-        height: cropHeight
-    } =
-        getCropDimensions(
-            width,
-            height,
-            crop.zoom
-        );
-
-    const maxLeft =
-        Math.max(
-            0,
-            width -
-                cropWidth
-        );
-
-    const maxTop =
-        Math.max(
-            0,
-            height -
-                cropHeight
-        );
-
-    crop.maxX =
-        maxLeft > 0
-            ? 1
-            : 0;
-
-    crop.maxY =
-        maxTop > 0
-            ? 1
-            : 0;
-
-    const x =
-        crop.x == null
-            ? 0.5
-            : Number(crop.x);
-
-    const y =
-        crop.y == null
-            ? 0.5
-            : Number(crop.y);
-
-    crop.x =
-        clamp(
-            Number.isFinite(x)
-                ? x
-                : 0.5,
-            0,
-            crop.maxX
-        );
-
-    crop.y =
-        clamp(
-            Number.isFinite(y)
-                ? y
-                : 0.5,
-            0,
-            crop.maxY
-        );
-
-    const panPixels =
-        Math.max(
-            1,
-            Math.round(
-                Math.min(
-                    cropWidth,
-                    cropHeight
-                ) *
-                    0.10
-            )
-        );
-
-    crop.panStep =
-        maxLeft > 0
-            ? panPixels /
-              maxLeft
-            : 0;
-
-    crop.panStepY =
-        maxTop > 0
-            ? panPixels /
-              maxTop
-            : 0;
-}
-
-function getCropPosition(
-    width,
-    height,
-    zoom,
-    x,
-    y
-) {
-    const {
-        width: cropWidth,
-        height: cropHeight
-    } =
-        getCropDimensions(
-            width,
-            height,
-            zoom
-        );
-
-    const maxLeft =
-        Math.max(
-            0,
-            width -
-                cropWidth
-        );
-
-    const maxTop =
-        Math.max(
-            0,
-            height -
-                cropHeight
-        );
-
-    const numericX =
-        Number(x);
-
-    const numericY =
-        Number(y);
-
-    const normalizedX =
-        clamp(
-            Number.isFinite(numericX)
-                ? numericX
-                : 0,
-            0,
-            1
-        );
-
-    const normalizedY =
-        clamp(
-            Number.isFinite(numericY)
-                ? numericY
-                : 0,
-            0,
-            1
-        );
-
-    return {
-        left:
-            Math.round(
-                normalizedX *
-                maxLeft
-            ),
-
-        top:
-            Math.round(
-                normalizedY *
-                maxTop
-            ),
-
-        width:
-            cropWidth,
-
-        height:
-            cropHeight
-    };
-}
-
-async function createCrop(
-    buffer,
-    cropState,
-    outputSize = 800
-) {
-    const metadata =
-        await getImageMetadata(
-            buffer
-        );
-
-    const width =
-        metadata.width;
-
-    const height =
-        metadata.height;
-
-    if (!width || !height) {
-        throw new Error(
-            "Could not determine image dimensions."
-        );
-    }
-
-    /*
-     * Keep the actual dimensions in the
-     * crop state so pan bounds can be
-     * recalculated whenever zoom changes.
-     */
-    cropState.imageWidth =
-        width;
-
-    cropState.imageHeight =
-        height;
-
-    updateCropBounds(
-        cropState
-    );
-
-    const extract =
-        getCropPosition(
-            width,
-            height,
-            cropState.zoom,
-            cropState.x,
-            cropState.y
-        );
-
-    return await sharp(buffer)
-        .extract(extract)
-        .resize(
-            outputSize,
-            outputSize,
-            {
-                fit: "cover"
-            }
-        )
-        .jpeg({
-            quality: 90
-        })
-        .toBuffer();
-}
-
-
-function createCropState(
-    imageBuffer,
-    userId
-) {
-    return {
-        imageBuffer,
-
-        userId,
-
-        imageWidth:
-            null,
-
-        imageHeight:
-            null,
-
-        zoom: 1,
-
-        minZoom: 1,
-
-        maxZoom: 5,
-
-        zoomStep: 0.25,
-
-        x: 0.5,
-
-        y: 0.5,
-
-        maxX: 1,
-
-        maxY: 1,
-
-        panStep: 0.05,
-
-        panStepY: 0.05,
-
-        previewMessageId:
-            null
-    };
-}
-
-
-function cropCaption(
-    cropState
-) {
-    const zoom =
-        Number(
-            cropState.zoom
-        ).toFixed(2);
-
-    return (
-        `<b>Profile Photo Preview</b>\n\n` +
-        `Zoom: ${zoom}×\n\n` +
-        `Use the buttons to position the image, ` +
-        `then choose <b>Set Profile Photo</b>.`
-    );
-}
-
-
-/* =========================
-   Send crop preview
-========================= */
-
-async function sendCropPreview(
-    chatId,
-    cropState
-) {
-    const preview =
-        await createCrop(
-            cropState.imageBuffer,
-            cropState,
-            800
-        );
-
-    const state =
-        getState(chatId);
-
-    if (
-        cropState.previewMessageId
-    ) {
-        const result =
-            await editMessageMedia(
-                chatId,
-                cropState.previewMessageId,
-                preview,
-                cropCaption(
-                    cropState
-                ),
-                cropMenu()
-            );
-
-        if (result.ok) {
-            return result;
-        }
-
-        /*
-         * The crop may have produced exactly
-         * the same media/markup. This is harmless.
-         */
-        if (
-            result.error_code === 400 &&
-            result.description?.startsWith(
-                "Bad Request: message is not modified:"
-            )
-        ) {
-            return result;
-        }
-
-        console.error(
-            "editMessageMedia failed:",
-            result
-        );
-
-        /*
-         * Genuine failure: create a new
-         * preview message.
-         */
-    }
-
-    const result =
-        await sendPhoto(
-            chatId,
-            preview,
-            cropCaption(
-                cropState
-            ),
-            cropMenu()
-        );
-
-    if (result.ok) {
-        cropState.previewMessageId =
-            result.result.message_id;
-
-        state.botMessages.add(
-            result.result.message_id
-        );
-    }
-
-    return result;
-}
-
-/* =========================
-   /setphoto
-========================= */
-
-async function handleSetPhotoCommand(
-    message
-) {
-    const chatId =
-        message.chat.id;
-
-    const referenced =
-        message.reply_to_message;
-
-    const photo =
-        referenced?.photo;
-
-    const state =
-        getState(chatId);
-
-    console.log(
-        "\n=== SET PHOTO REQUEST ==="
-    );
-
-    console.log(
-        "Chat:",
-        chatId
-    );
-
-    console.log(
-        "Chat type:",
-        message.chat.type
-    );
-
-    console.log(
-        "Message:",
-        message.text
-    );
-
-    console.log(
-        "Referenced message:",
-        referenced?.message_id
-    );
-
-    console.log(
-        "Photo sizes:",
-        photo?.map(
-            item => ({
-                file_id:
-                    item.file_id,
-                width:
-                    item.width,
-                height:
-                    item.height,
-                file_size:
-                    item.file_size
-            })
-        )
-    );
-
-    let user =
-        message.from ||
-        state.cropUser ||
-        null;
-
-    if (!photo?.length) {
-        await sendUserMessage(
-            chatId,
-            user,
-            "please reply to an image with `/setphoto`.",
-            mainMenu()
-        );
-
-        return;
-    }
-
-    if (user) {
-        trackUserMessage(
-            chatId,
-            user.id,
-            message.message_id
-        );
-    }
-
-    try {
-        const largest =
-            photo.reduce(
-                (
-                    largest,
-                    current
-                ) => {
-                    const largestSize =
-                        largest.file_size ||
-                        0;
-
-                    const currentSize =
-                        current.file_size ||
-                        0;
-
-                    return currentSize >
-                        largestSize
-                        ? current
-                        : largest;
-                }
-            );
-
-        console.log(
-            "Selected largest image:",
-            {
-                file_id:
-                    largest.file_id,
-                width:
-                    largest.width,
-                height:
-                    largest.height,
-                file_size:
-                    largest.file_size
-            }
-        );
-
-        console.log(
-            "Downloading:",
-            largest.file_id
-        );
-
-        const image =
-            await downloadTelegramPhoto(
-                largest.file_id
-            );
-
-        console.log(
-            "Downloaded:",
-            image.length,
-            "bytes"
-        );
-
-        const crop =
-            createCropState(
-                image,
-                user?.id ||
-                    state.cropUserId ||
-                    null
-            );
-
-        state.crop =
-            crop;
-
-        console.log(
-            "Creating crop preview..."
-        );
-
-        const result =
-            await sendCropPreview(
-                chatId,
-                crop
-            );
-
-        console.log(
-            "Crop preview result:",
-            JSON.stringify(
-                result,
-                null,
-                2
-            )
-        );
-
-    } catch (error) {
-        console.error(
-            "Crop initialization error:",
-            error
-        );
-
-        await sendUserMessage(
-            chatId,
-            user,
-            `the photo could not be prepared:\n\n${escapeHtml(error.message)}`,
-            mainMenu()
-        );
-    }
-}
-
-
-/* =========================
-   Crop callbacks
-========================= */
-
-async function editMessageMedia(
-    chatId,
-    messageId,
-    fileBuffer,
-    caption = "",
-    replyMarkup = null
-) {
+async function setChatPhoto(env, chatId, blob) {
     const form =
         new FormData();
 
@@ -1353,485 +113,875 @@ async function editMessageMedia(
     );
 
     form.append(
-        "message_id",
-        String(messageId)
-    );
-
-    form.append(
-        "media",
-        JSON.stringify({
-            type: "photo",
-            media:
-                "attach://crop_preview",
-            caption,
-            parse_mode:
-                "HTML"
-        })
-    );
-
-    if (replyMarkup) {
-        form.append(
-            "reply_markup",
-            JSON.stringify(
-                replyMarkup
-            )
-        );
-    }
-
-    form.append(
-        "crop_preview",
-        new Blob(
-            [fileBuffer],
-            {
-                type: "image/jpeg"
-            }
-        ),
-        "crop_preview.jpg"
+        "photo",
+        blob,
+        "profile.jpg"
     );
 
     const response =
         await fetch(
-            `${API}/editMessageMedia`,
+            `https://api.telegram.org/bot${BOT_TOKEN(env)}/setChatPhoto`,
             {
                 method: "POST",
                 body: form
             }
         );
 
-    return await response.json();
+    const data =
+        await response.json();
+
+    if (!data.ok) {
+        throw new Error(
+            data.description || "setChatPhoto failed."
+        );
+    }
+
+    return data.result;
 }
 
-
-async function handleCropCallback(
-    callback
-) {
-    const message =
-        callback.message;
-
-    if (!message) {
-        await answerCallback(
-            callback.id
-        );
-
-        return;
-    }
-
-    const chatId =
-        message.chat.id;
-
-    const state =
-        getState(chatId);
-
-    const crop =
-        state.crop;
-
-    if (!crop) {
-        await answerCallback(
-            callback.id,
-            "This crop session has expired."
-        );
-
-        return;
-    }
-
-    const data =
-        callback.data;
-
-    if (
-        data === "crop:cancel"
-    ) {
-        await answerCallback(
-            callback.id
-        );
-
-        state.crop = null;
-
-        await deleteMessage(
-            chatId,
-            message.message_id
-        );
-
-        await showMainMenu(
-            chatId,
-            state.cropUser ||
-                callback.from
-        );
-
-        return;
-    }
-
-    if (
-        data === "crop:set"
-    ) {
-        await answerCallback(
-            callback.id,
-            "Setting profile photo..."
-        );
-
-        try {
-            const cropped =
-				await createCrop(
-					crop.imageBuffer,
-					crop
-				);
-
-            const result =
-                await setChatPhoto(
-                    chatId,
-                    cropped
-                );
-
-            if (!result.ok) {
-                throw new Error(
-                    result.description ||
-                    "Telegram rejected the profile photo."
-                );
-            }
-
-            state.crop = null;
-
-            await deleteMessage(
-                chatId,
-                message.message_id
-            );
-
-            await sendUserMessage(
-                chatId,
-                state.cropUser ||
-                    callback.from,
-                "the profile photo has been changed.",
-                mainMenu()
-            );
-
-        } catch (error) {
-            console.error(
-                "Profile photo crop/set failed:",
-                error
-            );
-
-            state.crop = null;
-
-            await deleteMessage(
-                chatId,
-                message.message_id
-            );
-
-            await sendUserMessage(
-                chatId,
-                state.cropUser ||
-                    callback.from,
-                `the profile photo change failed:\n\n${escapeHtml(error.message)}`,
-                mainMenu()
-            );
+function mainMenu(username) {
+    return {
+        text:
+            `@${username}, what would you like me to do?`,
+        reply_markup: {
+            inline_keyboard: [
+                [
+                    {
+                        text: "Change Profile Photo",
+                        callback_data: "photo"
+                    }
+                ],
+                [
+                    {
+                        text: "Bye",
+                        callback_data: "bye"
+                    }
+                ]
+            ]
         }
+    };
+}
 
-        return;
-    }
+function photoMenu() {
+    return {
+        text:
+            "Reply to the image you want to use with /setphoto.",
+        reply_markup: {
+            inline_keyboard: [
+                [
+                    {
+                        text: "Cancel",
+                        callback_data: "cancel_photo"
+                    }
+                ]
+            ]
+        }
+    };
+}
 
-        let changed = false;
+function randomId() {
+    return crypto.randomUUID();
+}
 
-    switch (data) {
-        case "crop:left":
-            if (
-                crop.x > 0 &&
-                crop.panStep > 0
-            ) {
-                crop.x =
-                    Math.max(
-                        0,
-                        crop.x -
-                            crop.panStep
-                    );
+async function saveSession(env, id, data) {
+    await CACHE(env).put(
+        `crop:${id}`,
+        JSON.stringify(data),
+        {
+            expirationTtl: SESSION_TTL
+        }
+    );
+}
 
-                changed = true;
-            }
-            break;
+async function getSession(env, id) {
+    const value =
+        await CACHE(env).get(`crop:${id}`);
 
-        case "crop:right":
-            if (
-                crop.x <
-                    crop.maxX &&
-                crop.panStep > 0
-            ) {
-                crop.x =
-                    Math.min(
-                        crop.maxX,
-                        crop.x +
-                            crop.panStep
-                    );
-
-                changed = true;
-            }
-            break;
-
-        case "crop:up":
-            if (
-                crop.y > 0 &&
-                crop.panStepY > 0
-            ) {
-                crop.y =
-                    Math.max(
-                        0,
-                        crop.y -
-                            crop.panStepY
-                    );
-
-                changed = true;
-            }
-            break;
-
-        case "crop:down":
-            if (
-                crop.y <
-                    crop.maxY &&
-                crop.panStepY > 0
-            ) {
-                crop.y =
-                    Math.min(
-                        crop.maxY,
-                        crop.y +
-                            crop.panStepY
-                    );
-
-                changed = true;
-            }
-            break;
-
-        case "crop:zoomout":
-            if (
-                crop.zoom >
-                crop.minZoom
-            ) {
-                crop.zoom =
-                    Math.max(
-                        crop.minZoom,
-                        crop.zoom -
-                            crop.zoomStep
-                    );
-
-                updateCropBounds(
-                    crop
-                );
-
-                changed = true;
-            }
-            break;
-
-        case "crop:zoomin":
-            if (
-                crop.zoom <
-                crop.maxZoom
-            ) {
-                crop.zoom =
-                    Math.min(
-                        crop.maxZoom,
-                        crop.zoom +
-                            crop.zoomStep
-                    );
-
-                updateCropBounds(
-                    crop
-                );
-
-                changed = true;
-            }
-            break;
-
-        default:
-            await answerCallback(
-                callback.id
-            );
-
-            return;
-    }
-
-    if (!changed) {
-        await answerCallback(
-            callback.id
-        );
-
-        return;
+    if (!value) {
+        return null;
     }
 
     try {
-        const result =
-            await sendCropPreview(
-                chatId,
-                crop
-            );
-
-        const unchanged =
-            result.error_code === 400 &&
-            result.description?.startsWith(
-                "Bad Request: message is not modified:"
-            );
-
-        if (
-            !result.ok &&
-            !unchanged
-        ) {
-            throw new Error(
-                result.description ||
-                "Crop preview update failed."
-            );
-        }
-
-        await answerCallback(
-            callback.id
-        );
-
-    } catch (error) {
-        console.error(
-            "Crop preview update failed:",
-            error
-        );
-
-        await answerCallback(
-            callback.id,
-            "Couldn't update the preview."
-        );
+        return JSON.parse(value);
+    } catch {
+        return null;
     }
 }
 
-/* =========================
-   Bye
-========================= */
+async function deleteSession(env, id) {
+    await CACHE(env).delete(`crop:${id}`);
+}
 
-async function handleBye(
-    callback
+function isSetPhotoCommand(message, botUsername) {
+    const text =
+        message.text ||
+        message.caption ||
+        "";
+
+    const match =
+        text.trim().match(
+            /^\/setphoto(?:@([A-Za-z0-9_]+))?(?:\s|$)/i
+        );
+
+    if (!match) {
+        return false;
+    }
+
+    if (
+        match[1] &&
+        match[1].toLowerCase() !==
+            botUsername.toLowerCase()
+    ) {
+        return false;
+    }
+
+    return true;
+}
+
+function getCommandReplyPhoto(message) {
+    const reply =
+        message.reply_to_message;
+
+    if (!reply) {
+        return null;
+    }
+
+    if (
+        Array.isArray(reply.photo) &&
+        reply.photo.length
+    ) {
+        return reply.photo
+            .slice()
+            .sort(
+                (a, b) =>
+                    (b.file_size || 0) -
+                    (a.file_size || 0)
+            )[0];
+    }
+
+    return null;
+}
+
+function getUserFromMessage(message) {
+    return (
+        message.from ||
+        message.sender_chat ||
+        null
+    );
+}
+
+function usernameForUser(user) {
+    if (!user) {
+        return "User";
+    }
+
+    if (user.username) {
+        return user.username;
+    }
+
+    return (
+        user.first_name ||
+        user.title ||
+        "User"
+    );
+}
+
+async function handleSetPhotoCommand(
+    env,
+    message,
+    botUsername,
+    origin
 ) {
-    const message =
-        callback.message;
+    const photo =
+        getCommandReplyPhoto(message);
 
-    if (!message) {
-        await answerCallback(
-            callback.id,
-            "Goodbye!"
+    if (!photo) {
+        await sendMessage(
+            env,
+            message.chat.id,
+            "Reply to a photo with /setphoto."
         );
 
         return;
     }
 
-    const chatId =
-        message.chat.id;
+    if (
+        photo.file_size &&
+        photo.file_size > 20 * 1024 * 1024
+    ) {
+        await sendMessage(
+            env,
+            message.chat.id,
+            "That image is too large. Telegram bots can only download files up to 20 MB."
+        );
+
+        return;
+    }
 
     const user =
-        callback.from;
+        getUserFromMessage(message);
 
-    const state =
-        getState(chatId);
+    const sessionId =
+        randomId();
 
-    await answerCallback(
-        callback.id,
-        "Goodbye!"
+    await saveSession(
+        env,
+        sessionId,
+        {
+            chatId:
+                message.chat.id,
+
+            fileId:
+                photo.file_id,
+
+            userId:
+                user?.id || null,
+
+            username:
+                user?.username ||
+                null,
+
+            firstName:
+                user?.first_name ||
+                user?.title ||
+                null
+        }
     );
 
-    /*
-     * Delete every bot message
-     * tracked for this chat.
-     */
-    const messagesToDelete =
-        new Set(
-            state.botMessages
+    const cropUrl =
+        `${origin}/?session=${encodeURIComponent(sessionId)}`;
+
+    await sendMessage(
+        env,
+        message.chat.id,
+        "Position the square over the part of the image you want to use, then press Apply.",
+        {
+            reply_markup: {
+                inline_keyboard: [
+                    [
+                        {
+                            text: "Open Photo Cropper",
+                            web_app: {
+                                url: cropUrl
+                            }
+                        }
+                    ],
+                    [
+                        {
+                            text: "Cancel",
+                            callback_data:
+                                `cancel_photo:${sessionId}`
+                        }
+                    ]
+                ]
+            }
+        }
+    );
+}
+
+async function validateTelegramInitData(
+    env,
+    initData
+) {
+    if (!initData) {
+        throw new Error(
+            "Missing Telegram initialization data."
+        );
+    }
+
+    const params =
+        new URLSearchParams(initData);
+
+    const receivedHash =
+        params.get("hash");
+
+    if (!receivedHash) {
+        throw new Error(
+            "Missing Telegram initialization hash."
+        );
+    }
+
+    params.delete("hash");
+
+    const pairs =
+        Array.from(params.entries())
+            .sort(
+                ([a], [b]) =>
+                    a.localeCompare(b)
+            )
+            .map(
+                ([key, value]) =>
+                    `${key}=${value}`
+            );
+
+    const dataCheckString =
+        pairs.join("\n");
+
+    const encoder =
+        new TextEncoder();
+
+    const keyMaterial =
+        await crypto.subtle.importKey(
+            "raw",
+            encoder.encode(
+                BOT_TOKEN(env)
+            ),
+            {
+                name: "HMAC",
+                hash: "SHA-256"
+            },
+            false,
+            ["sign"]
         );
 
-    /*
-     * Delete only this user's
-     * tracked interaction messages.
-     */
-    const userState =
-        state.users.get(
-            user.id
+    const secretKey =
+        await crypto.subtle.sign(
+            "HMAC",
+            keyMaterial,
+            encoder.encode("WebAppData")
         );
 
-    if (userState) {
-        for (
-            const messageId
-            of userState.messages
-        ) {
-            messagesToDelete.add(
-                messageId
+    const validationKey =
+        await crypto.subtle.importKey(
+            "raw",
+            secretKey,
+            {
+                name: "HMAC",
+                hash: "SHA-256"
+            },
+            false,
+            ["sign"]
+        );
+
+    const calculated =
+        await crypto.subtle.sign(
+            "HMAC",
+            validationKey,
+            encoder.encode(dataCheckString)
+        );
+
+    const calculatedBytes =
+        new Uint8Array(calculated);
+
+    const calculatedHash =
+        Array.from(calculatedBytes)
+            .map(
+                byte =>
+                    byte
+                        .toString(16)
+                        .padStart(2, "0")
+            )
+            .join("");
+
+    if (
+        calculatedHash.length !==
+        receivedHash.length
+    ) {
+        throw new Error(
+            "Invalid Telegram initialization data."
+        );
+    }
+
+    let difference = 0;
+
+    for (
+        let i = 0;
+        i < calculatedHash.length;
+        i++
+    ) {
+        difference |=
+            calculatedHash.charCodeAt(i) ^
+            receivedHash.charCodeAt(i);
+    }
+
+    if (difference !== 0) {
+        throw new Error(
+            "Invalid Telegram initialization data."
+        );
+    }
+
+    const authDate =
+        Number(
+            params.get("auth_date")
+        );
+
+    if (
+        !Number.isFinite(authDate) ||
+        Math.abs(
+            Date.now() / 1000 -
+            authDate
+        ) > 3600
+    ) {
+        throw new Error(
+            "Telegram initialization data has expired."
+        );
+    }
+
+    let user = null;
+
+    const userData =
+        params.get("user");
+
+    if (userData) {
+        try {
+            user =
+                JSON.parse(userData);
+        } catch {
+            throw new Error(
+                "Invalid Telegram user data."
             );
         }
     }
 
-    /*
-     * Crop preview is already a
-     * tracked bot message, but keep
-     * this explicit for safety.
-     */
-    if (
-        state.crop?.previewMessageId
-    ) {
-        messagesToDelete.add(
-            state.crop.previewMessageId
-        );
-    }
+    return {
+        user,
+        params
+    };
+}
 
-    console.log(
-        "Cleaning up:",
-        [...messagesToDelete]
-    );
-
-    for (
-        const messageId
-        of messagesToDelete
-    ) {
-        const result =
-            await deleteMessage(
-                chatId,
-                messageId
-            );
-
-        console.log(
-            "Delete",
-            messageId,
-            result
-        );
-    }
-
-    chatState.delete(
-        chatId
-    );
-
-    const result =
-        await leaveChat(
-            chatId
-        );
-
-    console.log(
-        "leaveChat:",
-        result
+function getInitData(request) {
+    return (
+        request.headers.get(
+            "X-Telegram-Init-Data"
+        ) ||
+        request.headers.get(
+            "Authorization"
+        )?.replace(
+            /^tma\s+/i,
+            ""
+        ) ||
+        ""
     );
 }
 
+async function authorizeSession(
+    env,
+    request,
+    session
+) {
+    const initData =
+        getInitData(request);
 
-/* =========================
-   Callback handling
-========================= */
+    const auth =
+        await validateTelegramInitData(
+            env,
+            initData
+        );
+
+    if (!auth.user?.id) {
+        throw new Error(
+            "Telegram user information is missing."
+        );
+    }
+
+    if (
+        session.userId &&
+        Number(session.userId) !==
+            Number(auth.user.id)
+    ) {
+        throw new Error(
+            "This crop session belongs to another Telegram user."
+        );
+    }
+
+    return auth;
+}
+
+async function handleCropImage(
+    env,
+    request,
+    url
+) {
+    const sessionId =
+        url.searchParams.get(
+            "session"
+        );
+
+    if (!sessionId) {
+        return new Response(
+            "Missing session.",
+            { status: 400 }
+        );
+    }
+
+    const session =
+        await getSession(
+            env,
+            sessionId
+        );
+
+    if (!session) {
+        return new Response(
+            "Crop session expired.",
+            { status: 404 }
+        );
+    }
+
+    try {
+        await authorizeSession(
+            env,
+            request,
+            session
+        );
+    } catch (error) {
+        return new Response(
+            error.message,
+            { status: 403 }
+        );
+    }
+
+    try {
+        const {
+            response,
+            file
+        } =
+            await downloadTelegramFile(
+                env,
+                session.fileId
+            );
+
+        const headers =
+            new Headers();
+
+        headers.set(
+            "Content-Type",
+            response.headers.get(
+                "Content-Type"
+            ) || "image/jpeg"
+        );
+
+        headers.set(
+            "Cache-Control",
+            "private, no-store"
+        );
+
+        if (file.file_size) {
+            headers.set(
+                "Content-Length",
+                String(file.file_size)
+            );
+        }
+
+        return new Response(
+            response.body,
+            { headers }
+        );
+    } catch (error) {
+        console.error(
+            "Crop image error:",
+            error
+        );
+
+        return new Response(
+            "Unable to retrieve the Telegram image.",
+            { status: 502 }
+        );
+    }
+}
+
+async function handleCropSubmit(
+    env,
+    request
+) {
+    let form;
+
+    try {
+        form =
+            await request.formData();
+    } catch {
+        return new Response(
+            "Invalid form data.",
+            { status: 400 }
+        );
+    }
+
+    const sessionId =
+        String(
+            form.get("session") || ""
+        );
+
+    const initData =
+        String(
+            form.get("initData") || ""
+        );
+
+    const photo =
+        form.get("photo");
+
+    if (!sessionId) {
+        return new Response(
+            "Missing session.",
+            { status: 400 }
+        );
+    }
+
+    if (
+        !photo ||
+        typeof photo.arrayBuffer !==
+            "function"
+    ) {
+        return new Response(
+            "Missing cropped photo.",
+            { status: 400 }
+        );
+    }
+
+    const session =
+        await getSession(
+            env,
+            sessionId
+        );
+
+    if (!session) {
+        return new Response(
+            "Crop session expired.",
+            { status: 404 }
+        );
+    }
+
+    let auth;
+
+    try {
+        auth =
+            await validateTelegramInitData(
+                env,
+                initData
+            );
+    } catch (error) {
+        return new Response(
+            error.message,
+            { status: 403 }
+        );
+    }
+
+    if (
+        !auth.user?.id
+    ) {
+        return new Response(
+            "Telegram user information is missing.",
+            { status: 403 }
+        );
+    }
+
+    if (
+        session.userId &&
+        Number(session.userId) !==
+            Number(auth.user.id)
+    ) {
+        return new Response(
+            "This crop session belongs to another Telegram user.",
+            { status: 403 }
+        );
+    }
+
+    if (
+        photo.size >
+        5 * 1024 * 1024
+    ) {
+        return new Response(
+            "Cropped image is too large.",
+            { status: 413 }
+        );
+    }
+
+    const type =
+        photo.type || "";
+
+    if (
+        type !== "image/jpeg"
+    ) {
+        return new Response(
+            "The cropped image must be JPEG.",
+            { status: 400 }
+        );
+    }
+
+    const blob =
+        new Blob(
+            [
+                await photo.arrayBuffer()
+            ],
+            {
+                type: "image/jpeg"
+            }
+        );
+
+    try {
+        await setChatPhoto(
+            env,
+            session.chatId,
+            blob
+        );
+
+        await deleteSession(
+            env,
+            sessionId
+        );
+
+        const username =
+            auth.user.username ||
+            session.username ||
+            null;
+
+        const displayName =
+            username
+                ? `@${username}`
+                : (
+                    auth.user.first_name ||
+                    session.firstName ||
+                    "User"
+                );
+
+        await sendMessage(
+            env,
+            session.chatId,
+            `${displayName}, the profile photo has been changed.`
+        );
+
+        await sendMessage(
+            env,
+            session.chatId,
+            mainMenu(
+                username ||
+                auth.user.first_name ||
+                session.firstName ||
+                "User"
+            ).text,
+            {
+                reply_markup:
+                    mainMenu(
+                        username ||
+                        auth.user.first_name ||
+                        session.firstName ||
+                        "User"
+                    ).reply_markup
+            }
+        );
+
+        return Response.json({
+            success: true
+        });
+    } catch (error) {
+        console.error(
+            "setChatPhoto error:",
+            error
+        );
+
+        return Response.json(
+            {
+                success: false,
+                error:
+                    error.message
+            },
+            { status: 502 }
+        );
+    }
+}
+
+async function handleCropCancel(
+    env,
+    request,
+    sessionId
+) {
+    const session =
+        await getSession(
+            env,
+            sessionId
+        );
+
+    if (!session) {
+        return new Response(
+            "OK"
+        );
+    }
+
+    try {
+        await authorizeSession(
+            env,
+            request,
+            session
+        );
+    } catch (error) {
+        return new Response(
+            error.message,
+            { status: 403 }
+        );
+    }
+
+    await deleteSession(
+        env,
+        sessionId
+    );
+
+    return Response.json({
+        success: true
+    });
+}
+
+async function handlePhotoAction(
+    env,
+    callback
+) {
+    await answerCallback(
+        env,
+        callback.id
+    );
+
+    await sendMessage(
+        env,
+        callback.message.chat.id,
+        photoMenu().text,
+        {
+            reply_markup:
+                photoMenu()
+                    .reply_markup
+        }
+    );
+}
+
+async function handleBye(
+    env,
+    callback
+) {
+    await answerCallback(
+        env,
+        callback.id
+    );
+
+    const chatId =
+        callback.message.chat.id;
+
+    await sendMessage(
+        env,
+        chatId,
+        "Bye!"
+    );
+
+    await leaveChat(
+        env,
+        chatId
+    );
+}
 
 async function handleCallback(
+    env,
     callback
 ) {
     const data =
         callback.data || "";
 
-    if (
-        data.startsWith(
-            "crop:"
-        )
-    ) {
-        await handleCropCallback(
-            callback
-        );
-
-        return;
-    }
-
-    if (
-        data === "photo"
-    ) {
+    if (data === "photo") {
         await handlePhotoAction(
+            env,
+            callback
+        );
+
+        return;
+    }
+
+    if (data === "bye") {
+        await handleBye(
+            env,
             callback
         );
 
@@ -1839,315 +989,320 @@ async function handleCallback(
     }
 
     if (
-        data === "cancel"
+        data === "cancel_photo"
     ) {
         await answerCallback(
+            env,
             callback.id
         );
 
-        await showMainMenu(
+        await sendMessage(
+            env,
             callback.message.chat.id,
-            callback.from
+            "Cancelled."
         );
 
         return;
     }
 
     if (
-        data === "bye"
+        data.startsWith(
+            "cancel_photo:"
+        )
     ) {
-        await handleBye(
-            callback
+        await answerCallback(
+            env,
+            callback.id
         );
 
-        return;
+        const sessionId =
+            data.slice(
+                "cancel_photo:".length
+            );
+
+        await deleteSession(
+            env,
+            sessionId
+        );
+
+        await sendMessage(
+            env,
+            callback.message.chat.id,
+            "Cancelled."
+        );
     }
-
-    await answerCallback(
-        callback.id
-    );
 }
-
-
-/* =========================
-   Chat membership
-========================= */
 
 async function handleMyChatMember(
+    env,
     update
 ) {
-    const chat =
-        update.chat;
+    const change =
+        update.my_chat_member;
 
-    const newStatus =
-        update.new_chat_member?.status;
-
-    const oldStatus =
-        update.old_chat_member?.status;
-
-    const becameMember =
-        (
-            newStatus === "member" ||
-            newStatus === "administrator"
-        ) &&
-        (
-            oldStatus === "left" ||
-            oldStatus === "kicked"
-        );
-
-    if (!becameMember) {
+    if (!change) {
         return;
     }
 
-    console.log(
-        "Bot added to chat:",
-        chat.id,
-        chat.type,
-        newStatus
-    );
+    const newStatus =
+        change.new_chat_member?.status;
 
-    getState(chat.id);
-
-    await showMainMenu(
-        chat.id,
-        update.from || null
-    );
-}
-
-
-/* =========================
-   Command detection
-========================= */
-
-function isSetPhotoCommand(
-    message
-) {
-    const text =
-        message.text || "";
-
-    const entities =
-        message.entities || [];
-
-    for (
-        const entity
-        of entities
+    if (
+        ![
+            "member",
+            "administrator"
+        ].includes(newStatus)
     ) {
-        if (
-            entity.type !==
-            "bot_command"
-        ) {
-            continue;
-        }
-
-        const command =
-            text.slice(
-                entity.offset,
-                entity.offset +
-                    entity.length
-            );
-
-        const normalized =
-            command.toLowerCase();
-
-        if (
-            normalized ===
-            "/setphoto"
-        ) {
-            return true;
-        }
-
-        if (
-            normalized ===
-            `/setphoto@${botUsername}`.toLowerCase()
-        ) {
-            return true;
-        }
+        return;
     }
 
-    return false;
+    const bot =
+        change.new_chat_member.user;
+
+    const chat =
+        change.chat;
+
+    const username =
+        bot.username ||
+        "User";
+
+    await sendMessage(
+        env,
+        chat.id,
+        mainMenu(username).text,
+        {
+            reply_markup:
+                mainMenu(username)
+                    .reply_markup
+        }
+    );
 }
 
+async function handleMessage(
+    env,
+    message,
+    origin
+) {
+    const bot =
+        await getBot(env);
 
-/* =========================
-   Main
-========================= */
+    if (
+        isSetPhotoCommand(
+            message,
+            bot.username || ""
+        )
+    ) {
+        await handleSetPhotoCommand(
+            env,
+            message,
+            bot.username || "",
+            origin
+        );
 
-async function main() {
-    const me =
-        await api("getMe");
+        return;
+    }
 
-    if (!me.ok) {
-        throw new Error(
-            `getMe failed: ${
-                JSON.stringify(me)
-            }`
+    if (
+        Array.isArray(
+            message.new_chat_members
+        )
+    ) {
+        const added =
+            message.new_chat_members.some(
+                user =>
+                    user.id === bot.id
+            );
+
+        if (added) {
+            await sendMessage(
+                env,
+                message.chat.id,
+                mainMenu(
+                    bot.username ||
+                    "User"
+                ).text,
+                {
+                    reply_markup:
+                        mainMenu(
+                            bot.username ||
+                            "User"
+                        ).reply_markup
+                }
+            );
+        }
+    }
+}
+
+async function handleUpdate(
+    env,
+    update,
+    origin
+) {
+    if (
+        update.callback_query
+    ) {
+        await handleCallback(
+            env,
+            update.callback_query
+        );
+
+        return;
+    }
+
+    if (
+        update.my_chat_member
+    ) {
+        await handleMyChatMember(
+            env,
+            update
+        );
+
+        return;
+    }
+
+    if (
+        update.message
+    ) {
+        await handleMessage(
+            env,
+            update.message,
+            origin
+        );
+
+        return;
+    }
+
+    if (
+        update.channel_post
+    ) {
+        await handleMessage(
+            env,
+            update.channel_post,
+            origin
+        );
+    }
+}
+
+async function handleWebhook(
+    env,
+    request
+) {
+    let update;
+
+    try {
+        update =
+            await request.json();
+    } catch {
+        return new Response(
+            "Invalid update.",
+            { status: 400 }
         );
     }
 
-    botId =
-        me.result.id;
+    const origin =
+        new URL(
+            request.url
+        ).origin;
 
-    botUsername =
-        me.result.username;
-
-    console.log(
-        "Bot:",
-        me.result
-    );
-
-    console.log(
-        "Guest support:",
-        me.result
-            .supports_guest_queries
-    );
-
-    while (true) {
-        const result =
-            await api(
-                "getUpdates",
-                {
-                    offset,
-                    timeout: 30,
-                    allowed_updates: [
-                        "message",
-                        "channel_post",
-                        "callback_query",
-                        "guest_message",
-                        "my_chat_member"
-                    ]
-                }
-            );
-
-        if (!result.ok) {
-            console.log(result);
-
-            await new Promise(
-                resolve =>
-                    setTimeout(
-                        resolve,
-                        3000
-                    )
-            );
-
-            continue;
-        }
-
-        for (
-            const update
-            of result.result
-        ) {
-            offset =
-                update.update_id + 1;
-
-            console.log(
-                "\nUPDATE:",
-                JSON.stringify(
-                    update,
-                    null,
-                    2
-                )
-            );
-
-            if (
-                update.my_chat_member
-            ) {
-                await handleMyChatMember(
-                    update.my_chat_member
-                );
-
-                continue;
-            }
-
-            if (
-                update.callback_query
-            ) {
-                await handleCallback(
-                    update.callback_query
-                );
-
-                continue;
-            }
-
-            if (
-                update.message
-            ) {
-                const message =
-                    update.message;
-
-                if (
-                    message.new_chat_members
-                ) {
-                    await handleNewChatMember(
-                        message
-                    );
-
-                    continue;
-                }
-
-                if (
-                    isSetPhotoCommand(
-                        message
-                    )
-                ) {
-                    console.log(
-                        "=== SETPHOTO COMMAND DETECTED ==="
-                    );
-
-                    await handleSetPhotoCommand(
-                        message
-                    );
-                } else {
-                    await handleTextMessage(
-                        message
-                    );
-                }
-
-                continue;
-            }
-
-            if (
-                update.channel_post
-            ) {
-                const message =
-                    update.channel_post;
-
-                console.log(
-                    "\n=== CHANNEL POST ==="
-                );
-
-                console.log(
-                    JSON.stringify(
-                        message,
-                        null,
-                        2
-                    )
-                );
-
-                if (
-                    isSetPhotoCommand(
-                        message
-                    )
-                ) {
-                    console.log(
-                        "=== SETPHOTO COMMAND DETECTED ==="
-                    );
-
-                    await handleSetPhotoCommand(
-                        message
-                    );
-                } else {
-                    await handleTextMessage(
-                        message
-                    );
-                }
-
-                continue;
-            }
-        }
+    try {
+        await handleUpdate(
+            env,
+            update,
+            origin
+        );
+    } catch (error) {
+        console.error(
+            "Telegram update error:",
+            error
+        );
     }
+
+    return new Response(
+        "OK"
+    );
 }
 
+export default {
+    async fetch(
+        request,
+        env
+    ) {
+        const url =
+            new URL(
+                request.url
+            );
 
-main().catch(
-    console.error
-);
+        if (
+            request.method === "POST" &&
+            url.pathname ===
+                "/telegram/webhook"
+        ) {
+            return handleWebhook(
+                env,
+                request
+            );
+        }
+
+        if (
+            url.pathname ===
+                "/api/crop/image" &&
+            request.method === "GET"
+        ) {
+            return handleCropImage(
+                env,
+                request,
+                url
+            );
+        }
+
+        if (
+            url.pathname ===
+                "/api/crop/submit" &&
+            request.method === "POST"
+        ) {
+            return handleCropSubmit(
+                env,
+                request
+            );
+        }
+
+        if (
+            url.pathname ===
+                "/api/crop/cancel" &&
+            request.method === "POST"
+        ) {
+            let body;
+
+            try {
+                body =
+                    await request.json();
+            } catch {
+                return new Response(
+                    "Invalid request.",
+                    { status: 400 }
+                );
+            }
+
+            return handleCropCancel(
+                env,
+                request,
+                String(
+                    body.session || ""
+                )
+            );
+        }
+
+        if (
+            env.ASSETS
+        ) {
+            return env.ASSETS.fetch(
+                request
+            );
+        }
+
+        return new Response(
+            "Not found.",
+            { status: 404 }
+        );
+    }
+};
