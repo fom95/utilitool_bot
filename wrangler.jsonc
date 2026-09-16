@@ -16,5 +16,16 @@
       "binding": "MTKRUTO_CACHE",
       "id": "2fb2beb6903843dca8606cde0633311b"
     }
-  ]
+  ],
+
+  "observability": {
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true
+    },
+
+    "traces": {
+      "enabled": false
+    }
+  }
 }
