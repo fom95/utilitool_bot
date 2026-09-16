@@ -289,8 +289,7 @@ function usernameForUser(user) {
 async function handleSetPhotoCommand(
     env,
     message,
-    botUsername,
-    origin
+    botUsername
 ) {
     const photo =
         getCommandReplyPhoto(message);
@@ -349,7 +348,7 @@ async function handleSetPhotoCommand(
     );
 
     const cropUrl =
-        `${origin}/?session=${encodeURIComponent(sessionId)}`;
+        `https://t.me/${botUsername}/set_photo?startapp=${encodeURIComponent(sessionId)}`;
 
     await sendMessage(
         env,
@@ -361,9 +360,7 @@ async function handleSetPhotoCommand(
                     [
                         {
                             text: "Open Photo Cropper",
-                            web_app: {
-                                url: cropUrl
-                            }
+                            url: cropUrl
                         }
                     ],
                     [
@@ -1080,8 +1077,7 @@ async function handleMyChatMember(
 
 async function handleMessage(
     env,
-    message,
-    origin
+    message
 ) {
     const bot =
         await getBot(env);
@@ -1095,8 +1091,7 @@ async function handleMessage(
         await handleSetPhotoCommand(
             env,
             message,
-            bot.username || "",
-            origin
+            bot.username || ""
         );
 
         return;
@@ -1135,8 +1130,7 @@ async function handleMessage(
 
 async function handleUpdate(
     env,
-    update,
-    origin
+    update
 ) {
     if (
         update.callback_query
@@ -1165,8 +1159,7 @@ async function handleUpdate(
     ) {
         await handleMessage(
             env,
-            update.message,
-            origin
+            update.message
         );
 
         return;
@@ -1177,8 +1170,7 @@ async function handleUpdate(
     ) {
         await handleMessage(
             env,
-            update.channel_post,
-            origin
+            update.channel_post
         );
     }
 }
@@ -1198,17 +1190,10 @@ async function handleWebhook(
             { status: 400 }
         );
     }
-
-    const origin =
-        new URL(
-            request.url
-        ).origin;
-
     try {
         await handleUpdate(
             env,
-            update,
-            origin
+            update
         );
     } catch (error) {
         console.error(
