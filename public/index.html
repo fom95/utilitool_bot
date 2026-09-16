@@ -1,1127 +1,1202 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
+<meta charset="UTF-8">
+<meta
+    name="viewport"
+    content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"
+>
+<title>Crop Profile Photo</title>
 
-    <meta
-        name="viewport"
-        content="width=device-width, initial-scale=1, viewport-fit=cover"
-    >
+<script src="https://telegram.org/js/telegram-web-app.js?63"></script>
 
-    <title>Photo Cropper</title>
+<style>
+* {
+    box-sizing: border-box;
+}
 
-    <script src="https://telegram.org/js/telegram-web-app.js?63"></script>
+html,
+body {
+    margin: 0;
+    width: 100%;
+    height: 100%;
+    overflow: hidden;
+    background: var(--tg-theme-bg-color, #ffffff);
+    color: var(--tg-theme-text-color, #000000);
+    font-family:
+        -apple-system,
+        BlinkMacSystemFont,
+        "Segoe UI",
+        sans-serif;
+}
 
-    <style>
-        :root {
-            --bg: var(--tg-theme-bg-color, #ffffff);
-            --secondary-bg: var(--tg-theme-secondary-bg-color, #f1f1f1);
-            --text: var(--tg-theme-text-color, #111111);
-            --hint: var(--tg-theme-hint-color, #777777);
-            --button: var(--tg-theme-button-color, #2481cc);
-            --button-text: var(--tg-theme-button-text-color, #ffffff);
-            --destructive: var(--tg-theme-destructive-text-color, #ff3b30);
-        }
+body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
 
-        * {
-            box-sizing: border-box;
-            -webkit-tap-highlight-color: transparent;
-        }
+#title {
+    width: 100%;
+    padding:
+        12px
+        16px
+        8px;
 
-        html,
-        body {
-            margin: 0;
-            padding: 0;
-            width: 100%;
-            min-height: 100%;
-            background: var(--bg);
-            color: var(--text);
-            font-family:
-                -apple-system,
-                BlinkMacSystemFont,
-                "Segoe UI",
-                Roboto,
-                Helvetica,
-                Arial,
-                sans-serif;
-        }
+    font-size: 18px;
+    font-weight: 600;
+}
 
-        body {
-            padding:
-                max(12px, env(safe-area-inset-top))
-                max(12px, env(safe-area-inset-right))
-                max(12px, env(safe-area-inset-bottom))
-                max(12px, env(safe-area-inset-left));
-        }
+#cropArea {
+    position: relative;
 
-        #app {
-            width: 100%;
-            max-width: 700px;
-            margin: 0 auto;
-            display: flex;
-            flex-direction: column;
-            gap: 14px;
-        }
+    width: min(
+        100vw,
+        100vh - 120px
+    );
 
-        #status {
-            min-height: 20px;
-            color: var(--hint);
-            font-size: 14px;
-            text-align: center;
-        }
+    height: min(
+        100vw,
+        100vh - 120px
+    );
 
-        #crop-area {
-            position: relative;
-            width: 100%;
-            aspect-ratio: 1 / 1;
-            overflow: hidden;
-            background: #000;
-            touch-action: none;
-            user-select: none;
-            -webkit-user-select: none;
-        }
+    max-width: 800px;
+    max-height: 800px;
 
-        #image {
-            position: absolute;
-            left: 0;
-            top: 0;
-            width: 100%;
-            height: 100%;
-            object-fit: contain;
-            transform-origin: center center;
-            pointer-events: none;
-            user-select: none;
-            -webkit-user-drag: none;
-        }
+    overflow: hidden;
 
-        #crop-window {
-            position: absolute;
-            inset: 0;
-            pointer-events: none;
-        }
+    background: #000;
 
-        #crop-window::before {
-            content: "";
-            position: absolute;
-            inset: 0;
-            border: 2px solid rgba(255, 255, 255, 0.95);
-            box-shadow:
-                0 0 0 9999px rgba(0, 0, 0, 0.48);
-        }
+    touch-action: none;
 
-        #crop-window::after {
-            content: "";
-            position: absolute;
-            left: 33.333%;
-            right: 33.333%;
-            top: 0;
-            bottom: 0;
-            border-left: 1px solid rgba(255, 255, 255, 0.28);
-            border-right: 1px solid rgba(255, 255, 255, 0.28);
-        }
+    user-select: none;
+    -webkit-user-select: none;
+}
 
-        #crop-grid {
-            position: absolute;
-            inset: 0;
-        }
+#canvas {
+    display: block;
 
-        #crop-grid::before {
-            content: "";
-            position: absolute;
-            left: 0;
-            right: 0;
-            top: 33.333%;
-            bottom: 33.333%;
-            border-top: 1px solid rgba(255, 255, 255, 0.28);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.28);
-        }
+    width: 100%;
+    height: 100%;
 
-        #focus-point {
-            position: absolute;
-            width: 18px;
-            height: 18px;
-            margin-left: -9px;
-            margin-top: -9px;
-            border: 2px solid white;
-            border-radius: 50%;
-            box-shadow: 0 1px 4px rgba(0, 0, 0, 0.6);
-            pointer-events: none;
-            display: none;
-        }
+    touch-action: none;
+}
 
-        #controls {
-            display: flex;
-            flex-direction: column;
-            gap: 10px;
-        }
+#hint {
+    width: 100%;
+    padding:
+        8px
+        16px;
 
-        .control-row {
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 8px;
-        }
+    text-align: center;
 
-        button {
-            appearance: none;
-            border: 0;
-            border-radius: 10px;
-            min-height: 46px;
-            padding: 10px 14px;
-            background: var(--secondary-bg);
-            color: var(--text);
-            font: inherit;
-            font-size: 16px;
-            font-weight: 500;
-            cursor: pointer;
-            touch-action: manipulation;
-        }
+    font-size: 14px;
 
-        button:active {
-            transform: scale(0.97);
-        }
+    opacity: .7;
+}
 
-        button.primary {
-            background: var(--button);
-            color: var(--button-text);
-            font-weight: 600;
-        }
+#buttons {
+    width: 100%;
 
-        button.destructive {
-            color: var(--destructive);
-        }
+    display: flex;
 
-        button:disabled {
-            opacity: 0.45;
-            cursor: default;
-        }
+    gap: 10px;
 
-        #zoom-value {
-            text-align: center;
-            font-size: 14px;
-            color: var(--hint);
-            min-height: 20px;
-        }
+    padding:
+        10px
+        16px
+        calc(
+            10px +
+            env(safe-area-inset-bottom)
+        );
+}
 
-        #instructions {
-            color: var(--hint);
-            font-size: 13px;
-            line-height: 1.4;
-            text-align: center;
-        }
+button {
+    flex: 1;
 
-        #error {
-            display: none;
-            padding: 12px;
-            border-radius: 10px;
-            background: var(--secondary-bg);
-            color: var(--destructive);
-            font-size: 14px;
-            text-align: center;
-        }
+    min-height: 46px;
 
-        @media (min-width: 600px) {
-            #app {
-                padding-top: 10px;
-            }
+    border: 0;
+    border-radius: 10px;
 
-            #crop-area {
-                border-radius: 12px;
-            }
-        }
-    </style>
+    background:
+        var(
+            --tg-theme-secondary-bg-color,
+            #eeeeee
+        );
+
+    color:
+        var(
+            --tg-theme-text-color,
+            #000000
+        );
+
+    font-size: 16px;
+    font-weight: 600;
+}
+
+#apply {
+    background:
+        var(
+            --tg-theme-button-color,
+            #2481cc
+        );
+
+    color:
+        var(
+            --tg-theme-button-text-color,
+            #ffffff
+        );
+}
+
+button:disabled {
+    opacity: .5;
+}
+
+#loading {
+    position: fixed;
+
+    inset: 0;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    background:
+        var(
+            --tg-theme-bg-color,
+            #ffffff
+        );
+
+    z-index: 10;
+}
+
+#loading.hidden {
+    display: none;
+}
+
+#status {
+    padding: 16px;
+
+    text-align: center;
+
+    font-size: 16px;
+}
+</style>
 </head>
 
 <body>
 
-<div id="app">
-
+<div id="loading">
     <div id="status">
-        Loading photo...
+        Loading image…
     </div>
+</div>
 
-    <div id="crop-area">
-        <img
-            id="image"
-            alt="Photo being cropped"
-            draggable="false"
-        >
+<div id="title">
+    Position Profile Photo
+</div>
 
-        <div id="crop-window">
-            <div id="crop-grid"></div>
-        </div>
+<div id="cropArea">
+    <canvas id="canvas"></canvas>
+</div>
 
-        <div id="focus-point"></div>
-    </div>
+<div id="hint">
+    Drag to position · Pinch or scroll to zoom
+</div>
 
-    <div id="zoom-value">
-        Zoom: 1.00×
-    </div>
+<div id="buttons">
+    <button id="cancel">
+        Cancel
+    </button>
 
-    <div id="controls">
-
-        <div class="control-row">
-            <button
-                id="zoom-out"
-                type="button"
-            >
-                −
-            </button>
-
-            <button
-                id="reset"
-                type="button"
-            >
-                Reset
-            </button>
-
-            <button
-                id="zoom-in"
-                type="button"
-            >
-                +
-            </button>
-        </div>
-
-        <button
-            id="submit"
-            class="primary"
-            type="button"
-        >
-            Set Profile Photo
-        </button>
-
-        <button
-            id="cancel"
-            class="destructive"
-            type="button"
-        >
-            Cancel
-        </button>
-
-    </div>
-
-    <div id="instructions">
-        Tap to center that point. Drag to move the image.
-        Pinch or scroll to zoom.
-    </div>
-
-    <div id="error"></div>
-
+    <button id="apply">
+        Apply
+    </button>
 </div>
 
 <script>
-(() => {
-    "use strict";
+const tg =
+    window.Telegram &&
+    window.Telegram.WebApp;
 
-    const tg =
-        window.Telegram &&
-        window.Telegram.WebApp;
+if (!tg) {
+    document.getElementById(
+        "status"
+    ).textContent =
+        "This page must be opened inside Telegram.";
 
-    if (tg) {
-        tg.ready();
-        tg.expand();
-    }
+    throw new Error(
+        "Telegram WebApp unavailable."
+    );
+}
 
-    const image =
-        document.getElementById("image");
+tg.ready();
+tg.expand();
 
-    const cropArea =
-        document.getElementById("crop-area");
+const params =
+    new URLSearchParams(
+        window.location.search
+    );
 
-    const focusPoint =
-        document.getElementById("focus-point");
+const session =
+    params.get("session") ||
+    tg.initDataUnsafe
+        ?.start_param ||
+    "";
 
-    const status =
-        document.getElementById("status");
+const cropArea =
+    document.getElementById(
+        "cropArea"
+    );
 
-    const errorBox =
-        document.getElementById("error");
+const canvas =
+    document.getElementById(
+        "canvas"
+    );
 
-    const zoomValue =
-        document.getElementById("zoom-value");
+const ctx =
+    canvas.getContext(
+        "2d",
+        {
+            alpha: false
+        }
+    );
 
-    const zoomOut =
-        document.getElementById("zoom-out");
+const loading =
+    document.getElementById(
+        "loading"
+    );
 
-    const zoomIn =
-        document.getElementById("zoom-in");
+const status =
+    document.getElementById(
+        "status"
+    );
 
-    const resetButton =
-        document.getElementById("reset");
+const applyButton =
+    document.getElementById(
+        "apply"
+    );
 
-    const submitButton =
-        document.getElementById("submit");
+const cancelButton =
+    document.getElementById(
+        "cancel"
+    );
 
-    const cancelButton =
-        document.getElementById("cancel");
+if (!session) {
+    status.textContent =
+        "The crop session is missing.";
 
-    const params =
-        new URLSearchParams(
-            window.location.search
+    throw new Error(
+        "Missing session."
+    );
+}
+
+let image =
+    new Image();
+
+let imageLoaded =
+    false;
+
+let imageWidth =
+    0;
+
+let imageHeight =
+    0;
+
+let scale =
+    1;
+
+let minScale =
+    1;
+
+let centerX =
+    0;
+
+let centerY =
+    0;
+
+let dragging =
+    false;
+
+let lastX =
+    0;
+
+let lastY =
+    0;
+
+let pinchStartDistance =
+    0;
+
+let pinchStartScale =
+    1;
+
+let pinchCenterX =
+    0;
+
+let pinchCenterY =
+    0;
+
+let pointers =
+    new Map();
+
+function setStatus(text) {
+    status.textContent =
+        text;
+}
+
+function resizeCanvas() {
+    const rect =
+        cropArea.getBoundingClientRect();
+
+    const size =
+        Math.max(
+            1,
+            Math.round(
+                rect.width *
+                devicePixelRatio
+            )
         );
 
-    /*
-     * The bot will eventually generate this.
-     *
-     * Example:
-     *
-     * /?session=abc123
-     */
-    const session =
-        params.get("session");
+    canvas.width =
+        size;
 
-    /*
-     * Current crop state.
-     *
-     * x/y:
-     *   normalized image position.
-     *
-     * zoom:
-     *   1 = entire smallest dimension visible.
-     *   5 = 5x zoom.
-     */
-    const state = {
-        x: 0.5,
-        y: 0.5,
-        zoom: 1,
+    canvas.height =
+        size;
 
-        minZoom: 1,
-        maxZoom: 5,
-        zoomStep: 0.25,
+    draw();
+}
 
-        imageWidth: 0,
-        imageHeight: 0,
+function calculateMinimumScale() {
+    const largestDimension =
+        Math.max(
+            imageWidth,
+            imageHeight
+        );
 
-        pointers: new Map(),
+    minScale =
+        Math.max(
+            canvas.width /
+                imageWidth,
+            canvas.height /
+                imageHeight
+        );
+}
 
-        dragging: false,
+function clampCenter() {
+    const displayWidth =
+        imageWidth * scale;
 
-        dragStartX: 0,
-        dragStartY: 0,
+    const displayHeight =
+        imageHeight * scale;
 
-        dragOriginX: 0.5,
-        dragOriginY: 0.5,
+    const cropWidth =
+        canvas.width;
 
-        pinchDistance: 0,
-        pinchZoom: 1,
-        pinchCenterX: 0,
-        pinchCenterY: 0,
+    const cropHeight =
+        canvas.height;
 
-        focusX: 0.5,
-        focusY: 0.5
+    const halfVisibleX =
+        cropWidth /
+        (2 * scale);
+
+    const halfVisibleY =
+        cropHeight /
+        (2 * scale);
+
+    const halfImageX =
+        imageWidth / 2;
+
+    const halfImageY =
+        imageHeight / 2;
+
+    const minX =
+        halfImageX -
+        halfVisibleX;
+
+    const maxX =
+        halfImageX +
+        halfVisibleX;
+
+    const minY =
+        halfImageY -
+        halfVisibleY;
+
+    const maxY =
+        halfImageY +
+        halfVisibleY;
+
+    centerX =
+        Math.min(
+            Math.max(
+                centerX,
+                minX
+            ),
+            maxX
+        );
+
+    centerY =
+        Math.min(
+            Math.max(
+                centerY,
+                minY
+            ),
+            maxY
+        );
+
+    if (
+        displayWidth <=
+        cropWidth
+    ) {
+        centerX =
+            imageWidth / 2;
+    }
+
+    if (
+        displayHeight <=
+        cropHeight
+    ) {
+        centerY =
+            imageHeight / 2;
+    }
+}
+
+function draw() {
+    if (!imageLoaded) {
+        return;
+    }
+
+    const size =
+        canvas.width;
+
+    ctx.fillStyle =
+        "#000";
+
+    ctx.fillRect(
+        0,
+        0,
+        size,
+        size
+    );
+
+    const sourceWidth =
+        size / scale;
+
+    const sourceHeight =
+        size / scale;
+
+    let sx =
+        centerX -
+        sourceWidth / 2;
+
+    let sy =
+        centerY -
+        sourceHeight / 2;
+
+    sx =
+        Math.max(
+            0,
+            Math.min(
+                sx,
+                imageWidth -
+                    sourceWidth
+            )
+        );
+
+    sy =
+        Math.max(
+            0,
+            Math.min(
+                sy,
+                imageHeight -
+                    sourceHeight
+            )
+        );
+
+    const actualSourceWidth =
+        Math.min(
+            sourceWidth,
+            imageWidth
+        );
+
+    const actualSourceHeight =
+        Math.min(
+            sourceHeight,
+            imageHeight
+        );
+
+    ctx.drawImage(
+        image,
+        sx,
+        sy,
+        actualSourceWidth,
+        actualSourceHeight,
+        0,
+        0,
+        size,
+        size
+    );
+}
+
+function setZoom(
+    newScale,
+    focalX,
+    focalY
+) {
+    newScale =
+        Math.max(
+            minScale,
+            Math.min(
+                minScale * 8,
+                newScale
+            )
+        );
+
+    const oldScale =
+        scale;
+
+    if (
+        newScale === oldScale
+    ) {
+        return;
+    }
+
+    const imagePointX =
+        centerX +
+        (
+            focalX -
+            canvas.width / 2
+        ) /
+        oldScale;
+
+    const imagePointY =
+        centerY +
+        (
+            focalY -
+            canvas.height / 2
+        ) /
+        oldScale;
+
+    scale =
+        newScale;
+
+    centerX =
+        imagePointX -
+        (
+            focalX -
+            canvas.width / 2
+        ) /
+        scale;
+
+    centerY =
+        imagePointY -
+        (
+            focalY -
+            canvas.height / 2
+        ) /
+        scale;
+
+    clampCenter();
+
+    draw();
+}
+
+function pointerPosition(event) {
+    const rect =
+        canvas.getBoundingClientRect();
+
+    const factorX =
+        canvas.width /
+        rect.width;
+
+    const factorY =
+        canvas.height /
+        rect.height;
+
+    return {
+        x:
+            (event.clientX -
+                rect.left) *
+            factorX,
+
+        y:
+            (event.clientY -
+                rect.top) *
+            factorY
     };
+}
 
-    function clamp(
-        value,
-        min,
-        max
-    ) {
-        return Math.max(
-            min,
-            Math.min(
-                max,
-                value
-            )
-        );
-    }
-
-    function showError(message) {
-        errorBox.textContent =
-            message;
-
-        errorBox.style.display =
-            "block";
-
-        status.textContent =
-            "";
-    }
-
-    function setStatus(message) {
-        status.textContent =
-            message;
-
-        errorBox.style.display =
-            "none";
-    }
-
-    function getCropDimensions() {
-        const width =
-            state.imageWidth;
-
-        const height =
-            state.imageHeight;
-
-        const base =
-            Math.min(
-                width,
-                height
-            );
-
-        const size =
-            Math.max(
-                1,
-                base / state.zoom
-            );
-
-        return {
-            width: Math.min(
-                size,
-                width
-            ),
-
-            height: Math.min(
-                size,
-                height
-            )
-        };
-    }
-
-    function updateBounds() {
-        if (
-            !state.imageWidth ||
-            !state.imageHeight
-        ) {
-            return;
-        }
-
-        const crop =
-            getCropDimensions();
-
-        const maxX =
-            Math.max(
-                0,
-                state.imageWidth -
-                crop.width
-            );
-
-        const maxY =
-            Math.max(
-                0,
-                state.imageHeight -
-                crop.height
-            );
-
-        /*
-         * x/y represent the normalized
-         * position of the crop window
-         * inside the available movement.
-         */
-        state.x =
-            clamp(
-                state.x,
-                0,
-                1
-            );
-
-        state.y =
-            clamp(
-                state.y,
-                0,
-                1
-            );
-
-        /*
-         * If the image is square or the
-         * zoom is 1, movement is naturally
-         * zero.
-         */
-        if (!maxX) {
-            state.x = 0.5;
-        }
-
-        if (!maxY) {
-            state.y = 0.5;
-        }
-    }
-
-    function render() {
-        updateBounds();
-
-        const zoom =
-            state.zoom;
-
-        /*
-         * We use CSS scaling for display.
-         * The actual crop coordinates are
-         * still sent to the backend.
-         */
-        image.style.transform =
-            `scale(${zoom})`;
-
-        /*
-         * Translate the image so x/y
-         * determine which part is centered.
-         */
-        const tx =
-            (0.5 - state.x) * 100;
-
-        const ty =
-            (0.5 - state.y) * 100;
-
-        image.style.transform =
-            `translate(${tx}%, ${ty}%) scale(${zoom})`;
-
-        zoomValue.textContent =
-            `Zoom: ${zoom.toFixed(2)}×`;
-
-        zoomOut.disabled =
-            zoom <= state.minZoom;
-
-        zoomIn.disabled =
-            zoom >= state.maxZoom;
-    }
-
-    function getPointerPosition(event) {
-        const rect =
-            cropArea.getBoundingClientRect();
-
-        return {
-            x: clamp(
-                (event.clientX - rect.left) /
-                    rect.width,
-                0,
-                1
-            ),
-
-            y: clamp(
-                (event.clientY - rect.top) /
-                    rect.height,
-                0,
-                1
-            )
-        };
-    }
-
-    function distance(a, b) {
-        return Math.hypot(
-            a.clientX - b.clientX,
-            a.clientY - b.clientY
-        );
-    }
-
-    function midpoint(a, b) {
-        return {
-            x:
-                (a.clientX + b.clientX) /
-                2,
-
-            y:
-                (a.clientY + b.clientY) /
-                2
-        };
-    }
-
-    function getTwoPointers() {
-        return Array.from(
-            state.pointers.values()
-        ).slice(0, 2);
-    }
-
-    function setFocusPoint(x, y) {
-        state.focusX = x;
-        state.focusY = y;
-
-        focusPoint.style.left =
-            `${x * 100}%`;
-
-        focusPoint.style.top =
-            `${y * 100}%`;
-
-        focusPoint.style.display =
-            "block";
-    }
-
-    function centerOnPoint(x, y) {
-        /*
-         * Clicking a point should move the
-         * image so that the clicked point
-         * ends up in the center.
-         */
-        state.x = x;
-        state.y = y;
-
-        setFocusPoint(
-            x,
-            y
+canvas.addEventListener(
+    "pointerdown",
+    event => {
+        canvas.setPointerCapture(
+            event.pointerId
         );
 
-        render();
-    }
-
-    function zoomAround(
-        newZoom,
-        centerX,
-        centerY
-    ) {
-        const oldZoom =
-            state.zoom;
-
-        newZoom =
-            clamp(
-                newZoom,
-                state.minZoom,
-                state.maxZoom
-            );
+        pointers.set(
+            event.pointerId,
+            {
+                x:
+                    event.clientX,
+                y:
+                    event.clientY
+            }
+        );
 
         if (
-            newZoom === oldZoom
+            pointers.size === 1
         ) {
-            return;
+            dragging = true;
+
+            lastX =
+                event.clientX;
+
+            lastY =
+                event.clientY;
         }
 
-        /*
-         * Preserve the image point underneath
-         * the cursor/fingers as much as possible
-         * while changing zoom.
-         */
-        const ratio =
-            1 -
-            oldZoom /
-            newZoom;
-
-        state.x +=
-            (centerX - 0.5) *
-            ratio;
-
-        state.y +=
-            (centerY - 0.5) *
-            ratio;
-
-        state.zoom =
-            newZoom;
-
-        updateBounds();
-        render();
-    }
-
-    function reset() {
-        state.x = 0.5;
-        state.y = 0.5;
-        state.zoom = 1;
-
-        focusPoint.style.display =
-            "none";
-
-        render();
-    }
-
-    function startDrag(event) {
-        state.dragging =
-            true;
-
-        state.dragStartX =
-            event.clientX;
-
-        state.dragStartY =
-            event.clientY;
-
-        state.dragOriginX =
-            state.x;
-
-        state.dragOriginY =
-            state.y;
-    }
-
-    function drag(event) {
-        if (!state.dragging) {
-            return;
-        }
-
-        const rect =
-            cropArea.getBoundingClientRect();
-
-        const dx =
-            event.clientX -
-            state.dragStartX;
-
-        const dy =
-            event.clientY -
-            state.dragStartY;
-
-        /*
-         * Dragging the image moves the crop
-         * in the opposite direction.
-         */
-        state.x =
-            state.dragOriginX -
-            dx / rect.width;
-
-        state.y =
-            state.dragOriginY -
-            dy / rect.height;
-
-        updateBounds();
-        render();
-    }
-
-    function endDrag() {
-        state.dragging =
-            false;
-    }
-
-    cropArea.addEventListener(
-        "pointerdown",
-        event => {
-            cropArea.setPointerCapture(
-                event.pointerId
-            );
-
-            state.pointers.set(
-                event.pointerId,
-                event
-            );
-
-            if (
-                state.pointers.size === 1
-            ) {
-                startDrag(event);
-            }
-
-            if (
-                state.pointers.size === 2
-            ) {
-                const [
-                    a,
-                    b
-                ] =
-                    getTwoPointers();
-
-                state.pinchDistance =
-                    distance(a, b);
-
-                state.pinchZoom =
-                    state.zoom;
-
-                const mid =
-                    midpoint(a, b);
-
-                const rect =
-                    cropArea.getBoundingClientRect();
-
-                state.pinchCenterX =
-                    clamp(
-                        (mid.x - rect.left) /
-                            rect.width,
-                        0,
-                        1
-                    );
-
-                state.pinchCenterY =
-                    clamp(
-                        (mid.y - rect.top) /
-                            rect.height,
-                        0,
-                        1
-                    );
-
-                state.dragging =
-                    false;
-            }
-
-            event.preventDefault();
-        },
-        {
-            passive: false
-        }
-    );
-
-    cropArea.addEventListener(
-        "pointermove",
-        event => {
-            if (
-                !state.pointers.has(
-                    event.pointerId
-                )
-            ) {
-                return;
-            }
-
-            state.pointers.set(
-                event.pointerId,
-                event
-            );
-
-            if (
-                state.pointers.size === 1
-            ) {
-                drag(event);
-            }
-
-            if (
-                state.pointers.size === 2
-            ) {
-                const [
-                    a,
-                    b
-                ] =
-                    getTwoPointers();
-
-                const currentDistance =
-                    distance(a, b);
-
-                if (
-                    state.pinchDistance > 0
-                ) {
-                    const ratio =
-                        currentDistance /
-                        state.pinchDistance;
-
-                    zoomAround(
-                        state.pinchZoom *
-                            ratio,
-
-                        state.pinchCenterX,
-                        state.pinchCenterY
-                    );
-                }
-            }
-
-            event.preventDefault();
-        },
-        {
-            passive: false
-        }
-    );
-
-    cropArea.addEventListener(
-        "pointerup",
-        event => {
-            state.pointers.delete(
-                event.pointerId
-            );
-
-            if (
-                state.pointers.size === 0
-            ) {
-                endDrag();
-            }
-
-            if (
-                state.pointers.size === 1
-            ) {
-                const remaining =
-                    Array.from(
-                        state.pointers.values()
-                    )[0];
-
-                startDrag(
-                    remaining
+        if (
+            pointers.size === 2
+        ) {
+            const values =
+                Array.from(
+                    pointers.values()
                 );
-            }
-        }
-    );
-
-    cropArea.addEventListener(
-        "pointercancel",
-        event => {
-            state.pointers.delete(
-                event.pointerId
-            );
-
-            if (
-                state.pointers.size === 0
-            ) {
-                endDrag();
-            }
-        }
-    );
-
-    cropArea.addEventListener(
-        "wheel",
-        event => {
-            event.preventDefault();
-
-            const position =
-                getPointerPosition(
-                    event
-                );
-
-            const amount =
-                event.deltaY < 0
-                    ? state.zoomStep
-                    : -state.zoomStep;
-
-            zoomAround(
-                state.zoom + amount,
-                position.x,
-                position.y
-            );
-
-            setFocusPoint(
-                position.x,
-                position.y
-            );
-        },
-        {
-            passive: false
-        }
-    );
-
-    zoomOut.addEventListener(
-        "click",
-        () => {
-            zoomAround(
-                state.zoom -
-                    state.zoomStep,
-                0.5,
-                0.5
-            );
-        }
-    );
-
-    zoomIn.addEventListener(
-        "click",
-        () => {
-            zoomAround(
-                state.zoom +
-                    state.zoomStep,
-                0.5,
-                0.5
-            );
-        }
-    );
-
-    resetButton.addEventListener(
-        "click",
-        reset
-    );
-
-    /*
-     * A short click without meaningful
-     * movement acts as "center here".
-     */
-    let clickStart = null;
-
-    cropArea.addEventListener(
-        "pointerdown",
-        event => {
-            if (
-                state.pointers.size !== 1
-            ) {
-                return;
-            }
-
-            clickStart = {
-                x: event.clientX,
-                y: event.clientY
-            };
-        }
-    );
-
-    cropArea.addEventListener(
-        "pointerup",
-        event => {
-            if (!clickStart) {
-                return;
-            }
 
             const dx =
+                values[0].x -
+                values[1].x;
+
+            const dy =
+                values[0].y -
+                values[1].y;
+
+            pinchStartDistance =
+                Math.hypot(
+                    dx,
+                    dy
+                );
+
+            pinchStartScale =
+                scale;
+
+            const rect =
+                canvas.getBoundingClientRect();
+
+            pinchCenterX =
+                (
+                    (
+                        values[0].x +
+                        values[1].x
+                    ) / 2 -
+                    rect.left
+                ) *
+                (
+                    canvas.width /
+                    rect.width
+                );
+
+            pinchCenterY =
+                (
+                    (
+                        values[0].y +
+                        values[1].y
+                    ) / 2 -
+                    rect.top
+                ) *
+                (
+                    canvas.height /
+                    rect.height
+                );
+
+            dragging = false;
+        }
+    }
+);
+
+canvas.addEventListener(
+    "pointermove",
+    event => {
+        if (
+            !pointers.has(
+                event.pointerId
+            )
+        ) {
+            return;
+        }
+
+        pointers.set(
+            event.pointerId,
+            {
+                x:
+                    event.clientX,
+                y:
+                    event.clientY
+            }
+        );
+
+        if (
+            pointers.size === 1 &&
+            dragging
+        ) {
+            const dx =
                 event.clientX -
-                clickStart.x;
+                lastX;
 
             const dy =
                 event.clientY -
-                clickStart.y;
+                lastY;
 
-            const moved =
-                Math.hypot(dx, dy);
+            const rect =
+                canvas.getBoundingClientRect();
 
-            clickStart = null;
+            centerX -=
+                dx *
+                (
+                    canvas.width /
+                    rect.width
+                ) /
+                scale;
 
-            if (moved > 8) {
-                return;
-            }
+            centerY -=
+                dy *
+                (
+                    canvas.height /
+                    rect.height
+                ) /
+                scale;
 
-            const position =
-                getPointerPosition(
-                    event
-                );
+            clampCenter();
 
-            centerOnPoint(
-                position.x,
-                position.y
-            );
-        }
-    );
+            lastX =
+                event.clientX;
 
-    function getPayload() {
-        return {
-            type: "set_photo",
+            lastY =
+                event.clientY;
 
-            session,
+            draw();
 
-            crop: {
-                x: Number(
-                    state.x.toFixed(6)
-                ),
-
-                y: Number(
-                    state.y.toFixed(6)
-                ),
-
-                zoom: Number(
-                    state.zoom.toFixed(4)
-                )
-            },
-
-            telegram: tg
-                ? {
-                    initData:
-                        tg.initData || "",
-
-                    version:
-                        tg.version || "",
-
-                    platform:
-                        tg.platform || ""
-                }
-                : null
-        };
-    }
-
-    async function submit() {
-        if (!session) {
-            showError(
-                "This crop session is missing."
-            );
             return;
         }
 
-        submitButton.disabled =
+        if (
+            pointers.size === 2 &&
+            pinchStartDistance > 0
+        ) {
+            const values =
+                Array.from(
+                    pointers.values()
+                );
+
+            const dx =
+                values[0].x -
+                values[1].x;
+
+            const dy =
+                values[0].y -
+                values[1].y;
+
+            const distance =
+                Math.hypot(
+                    dx,
+                    dy
+                );
+
+            const ratio =
+                distance /
+                pinchStartDistance;
+
+            setZoom(
+                pinchStartScale *
+                    ratio,
+                pinchCenterX,
+                pinchCenterY
+            );
+        }
+    }
+);
+
+function endPointer(event) {
+    pointers.delete(
+        event.pointerId
+    );
+
+    if (
+        pointers.size < 2
+    ) {
+        pinchStartDistance =
+            0;
+    }
+
+    if (
+        pointers.size === 1
+    ) {
+        const remaining =
+            Array.from(
+                pointers.values()
+            )[0];
+
+        dragging = true;
+
+        lastX =
+            remaining.x;
+
+        lastY =
+            remaining.y;
+    }
+
+    if (
+        pointers.size === 0
+    ) {
+        dragging = false;
+    }
+}
+
+canvas.addEventListener(
+    "pointerup",
+    endPointer
+);
+
+canvas.addEventListener(
+    "pointercancel",
+    endPointer
+);
+
+canvas.addEventListener(
+    "wheel",
+    event => {
+        event.preventDefault();
+
+        const point =
+            pointerPosition(
+                event
+            );
+
+        const factor =
+            Math.exp(
+                -event.deltaY *
+                0.0015
+            );
+
+        setZoom(
+            scale * factor,
+            point.x,
+            point.y
+        );
+    },
+    {
+        passive: false
+    }
+);
+
+canvas.addEventListener(
+    "dblclick",
+    event => {
+        const point =
+            pointerPosition(
+                event
+            );
+
+        const newScale =
+            scale >=
+                minScale * 4
+                ? minScale
+                : scale * 1.5;
+
+        setZoom(
+            newScale,
+            point.x,
+            point.y
+        );
+    }
+);
+
+async function loadImage() {
+    const response =
+        await fetch(
+            `/api/crop/image?session=${encodeURIComponent(session)}`,
+            {
+                headers: {
+                    "X-Telegram-Init-Data":
+                        tg.initData
+                },
+                cache: "no-store"
+            }
+        );
+
+    if (!response.ok) {
+        throw new Error(
+            await response.text()
+        );
+    }
+
+    const blob =
+        await response.blob();
+
+    const objectUrl =
+        URL.createObjectURL(
+            blob
+        );
+
+    await new Promise(
+        (resolve, reject) => {
+            image.onload =
+                resolve;
+
+            image.onerror =
+                reject;
+
+            image.src =
+                objectUrl;
+        }
+    );
+
+    URL.revokeObjectURL(
+        objectUrl
+    );
+
+    imageWidth =
+        image.naturalWidth;
+
+    imageHeight =
+        image.naturalHeight;
+
+    resizeCanvas();
+
+    calculateMinimumScale();
+
+    scale =
+        minScale;
+
+    centerX =
+        imageWidth / 2;
+
+    centerY =
+        imageHeight / 2;
+
+    clampCenter();
+
+    draw();
+
+    imageLoaded =
+        true;
+
+    loading.classList.add(
+        "hidden"
+    );
+}
+
+window.addEventListener(
+    "resize",
+    () => {
+        if (!imageLoaded) {
+            return;
+        }
+
+        resizeCanvas();
+
+        calculateMinimumScale();
+
+        scale =
+            Math.max(
+                scale,
+                minScale
+            );
+
+        clampCenter();
+
+        draw();
+    }
+);
+
+cancelButton.addEventListener(
+    "click",
+    async () => {
+        cancelButton.disabled =
+            true;
+
+        applyButton.disabled =
+            true;
+
+        try {
+            await fetch(
+                "/api/crop/cancel",
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json",
+
+                        "X-Telegram-Init-Data":
+                            tg.initData
+                    },
+
+                    body:
+                        JSON.stringify({
+                            session
+                        })
+                }
+            );
+        } catch {}
+
+        tg.close();
+    }
+);
+
+applyButton.addEventListener(
+    "click",
+    async () => {
+        if (!imageLoaded) {
+            return;
+        }
+
+        applyButton.disabled =
             true;
 
         cancelButton.disabled =
             true;
 
+        loading.classList.remove(
+            "hidden"
+        );
+
         setStatus(
-            "Applying profile photo..."
+            "Creating profile photo…"
         );
 
         try {
-            /*
-             * This endpoint will be implemented
-             * in the Cloudflare Worker.
-             */
+            const outputCanvas =
+                document.createElement(
+                    "canvas"
+                );
+
+            outputCanvas.width =
+                800;
+
+            outputCanvas.height =
+                800;
+
+            const output =
+                outputCanvas.getContext(
+                    "2d",
+                    {
+                        alpha: false
+                    }
+                );
+
+            const sourceWidth =
+                canvas.width /
+                scale;
+
+            const sourceHeight =
+                canvas.height /
+                scale;
+
+            let sx =
+                centerX -
+                sourceWidth / 2;
+
+            let sy =
+                centerY -
+                sourceHeight / 2;
+
+            sx =
+                Math.max(
+                    0,
+                    Math.min(
+                        sx,
+                        imageWidth -
+                            sourceWidth
+                    )
+                );
+
+            sy =
+                Math.max(
+                    0,
+                    Math.min(
+                        sy,
+                        imageHeight -
+                            sourceHeight
+                    )
+                );
+
+            output.fillStyle =
+                "#000";
+
+            output.fillRect(
+                0,
+                0,
+                800,
+                800
+            );
+
+            output.drawImage(
+                image,
+                sx,
+                sy,
+                sourceWidth,
+                sourceHeight,
+                0,
+                0,
+                800,
+                800
+            );
+
+            const blob =
+                await new Promise(
+                    resolve =>
+                        outputCanvas.toBlob(
+                            resolve,
+                            "image/jpeg",
+                            0.90
+                        )
+                );
+
+            if (!blob) {
+                throw new Error(
+                    "Unable to create JPEG."
+                );
+            }
+
+            setStatus(
+                "Changing profile photo…"
+            );
+
+            const form =
+                new FormData();
+
+            form.append(
+                "session",
+                session
+            );
+
+            form.append(
+                "initData",
+                tg.initData
+            );
+
+            form.append(
+                "photo",
+                blob,
+                "profile.jpg"
+            );
+
             const response =
                 await fetch(
-                    "/api/crop",
+                    "/api/crop/submit",
                     {
                         method: "POST",
-
-                        headers: {
-                            "Content-Type":
-                                "application/json"
-                        },
-
-                        body:
-                            JSON.stringify(
-                                getPayload()
-                            )
+                        body: form
                     }
                 );
 
             const result =
-                await response.json();
+                await response.json()
+                    .catch(
+                        () => ({})
+                    );
 
             if (
                 !response.ok ||
@@ -1129,7 +1204,7 @@
             ) {
                 throw new Error(
                     result.error ||
-                    "The profile photo could not be changed."
+                    "Unable to change profile photo."
                 );
             }
 
@@ -1137,150 +1212,40 @@
                 "Profile photo changed."
             );
 
-            /*
-             * Give the Worker a moment to finish
-             * the Telegram operation, then close.
-             */
-            if (tg) {
-                setTimeout(
-                    () => tg.close(),
-                    500
-                );
-            }
-
+            setTimeout(
+                () => tg.close(),
+                500
+            );
         } catch (error) {
             console.error(
                 error
             );
 
-            showError(
+            setStatus(
                 error.message ||
                 "Something went wrong."
             );
 
-            submitButton.disabled =
+            applyButton.disabled =
                 false;
 
             cancelButton.disabled =
                 false;
         }
     }
+);
 
-    async function cancel() {
-        if (session) {
-            try {
-                await fetch(
-                    "/api/crop/cancel",
-                    {
-                        method: "POST",
+loadImage()
+    .catch(error => {
+        console.error(
+            error
+        );
 
-                        headers: {
-                            "Content-Type":
-                                "application/json"
-                        },
-
-                        body:
-                            JSON.stringify({
-                                session,
-
-                                telegram: tg
-                                    ? {
-                                        initData:
-                                            tg.initData ||
-                                            ""
-                                    }
-                                    : null
-                            })
-                    }
-                );
-            } catch (error) {
-                console.error(
-                    error
-                );
-            }
-        }
-
-        if (tg) {
-            tg.close();
-        }
-    }
-
-    submitButton.addEventListener(
-        "click",
-        submit
-    );
-
-    cancelButton.addEventListener(
-        "click",
-        cancel
-    );
-
-    /*
-     * Load the image from the Worker.
-     *
-     * The Worker will later expose:
-     *
-     * GET /api/crop/image?session=...
-     */
-    async function loadImage() {
-        if (!session) {
-            showError(
-                "No crop session was supplied."
-            );
-            return;
-        }
-
-        try {
-            const response =
-                await fetch(
-                    `/api/crop/image?session=${encodeURIComponent(session)}`
-                );
-
-            if (!response.ok) {
-                throw new Error(
-                    "The image could not be loaded."
-                );
-            }
-
-            const blob =
-                await response.blob();
-
-            const objectUrl =
-                URL.createObjectURL(
-                    blob
-                );
-
-            image.onload = () => {
-                state.imageWidth =
-                    image.naturalWidth;
-
-                state.imageHeight =
-                    image.naturalHeight;
-
-                reset();
-
-                setStatus(
-                    "Adjust the crop."
-                );
-            };
-
-            image.src =
-                objectUrl;
-
-        } catch (error) {
-            console.error(
-                error
-            );
-
-            showError(
-                error.message ||
-                "The image could not be loaded."
-            );
-        }
-    }
-
-    loadImage();
-})();
+        setStatus(
+            error.message ||
+            "Unable to load image."
+        );
+    });
 </script>
 
 </body>
