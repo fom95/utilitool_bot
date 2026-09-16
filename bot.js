@@ -23,10 +23,38 @@ async function telegram(env, method, body = null) {
     const response =
         await fetch(url, options);
 
-    const data =
-        await response.json();
+    const text =
+        await response.text();
+
+    let data;
+
+    try {
+        data =
+            JSON.parse(text);
+    } catch {
+        console.error(
+            "Telegram returned non-JSON response:",
+            method,
+            response.status,
+            text
+        );
+
+        throw new Error(
+            `${method}: Telegram returned HTTP ${response.status}`
+        );
+    }
 
     if (!data.ok) {
+        console.error(
+            "Telegram API error:",
+            JSON.stringify({
+                method,
+                httpStatus: response.status,
+                errorCode: data.error_code,
+                description: data.description
+            })
+        );
+
         throw new Error(
             `${method}: ${data.description || "Telegram API error"}`
         );
@@ -263,11 +291,7 @@ function getCommandReplyPhoto(message) {
 }
 
 function getUserFromMessage(message) {
-    return (
-        message.from ||
-        message.sender_chat ||
-        null
-    );
+    return message.from || null;
 }
 
 function usernameForUser(user) {
