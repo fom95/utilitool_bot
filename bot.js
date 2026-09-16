@@ -1,46 +1,13 @@
-const BOT_TOKEN = env => env.TELEGRAM_BOT_TOKEN;
+async function BOT_TOKEN(env) {
+    return env.TELEGRAM_BOT_TOKEN.get();
+}
 const CACHE = env => env.UTILITOOL_BOT_CACHE;
 
 const SESSION_TTL = 15 * 60;
 
 async function telegram(env, method, body = null) {
     const token =
-        BOT_TOKEN(env);
-
-    console.error(
-        "Telegram token diagnostics:",
-        JSON.stringify({
-            exists: !!token,
-            type: typeof token,
-            length: token?.length || 0,
-            colonIndex:
-                typeof token === "string"
-                    ? token.indexOf(":")
-                    : -1,
-            startsWithBot:
-                typeof token === "string"
-                    ? token.startsWith("bot")
-                    : false,
-            firstChars:
-                typeof token === "string"
-                    ? token.slice(0, 4)
-                    : "",
-            lastChars:
-                typeof token === "string"
-                    ? token.slice(-4)
-                    : ""
-        })
-    );
-
-    if (
-        typeof token !== "string" ||
-        !token ||
-        !token.includes(":")
-    ) {
-        throw new Error(
-            "TELEGRAM_BOT_TOKEN is missing or invalid in the Worker environment."
-        );
-    }
+        await BOT_TOKEN(env);
 
     const url =
         `https://api.telegram.org/bot${token}/${method}`;
@@ -70,29 +37,12 @@ async function telegram(env, method, body = null) {
         data =
             JSON.parse(text);
     } catch {
-        console.error(
-            "Telegram returned non-JSON response:",
-            method,
-            response.status,
-            text
-        );
-
         throw new Error(
             `${method}: Telegram returned HTTP ${response.status}`
         );
     }
 
     if (!data.ok) {
-        console.error(
-            "Telegram API error:",
-            JSON.stringify({
-                method,
-                httpStatus: response.status,
-                errorCode: data.error_code,
-                description: data.description
-            })
-        );
-
         throw new Error(
             `${method}: ${data.description || "Telegram API error"}`
         );
@@ -152,9 +102,12 @@ async function downloadTelegramFile(env, fileId) {
         throw new Error("Telegram did not return a file path.");
     }
 
+    const token =
+        await BOT_TOKEN(env);
+    
     const response =
         await fetch(
-            `https://api.telegram.org/file/bot${BOT_TOKEN(env)}/${file.file_path}`
+            `https://api.telegram.org/file/bot${token}/${file.file_path}`
         );
 
     if (!response.ok) {
@@ -184,9 +137,12 @@ async function setChatPhoto(env, chatId, blob) {
         "profile.jpg"
     );
 
+    const token =
+        await BOT_TOKEN(env);
+    
     const response =
         await fetch(
-            `https://api.telegram.org/bot${BOT_TOKEN(env)}/setChatPhoto`,
+            `https://api.telegram.org/bot${token}/setChatPhoto`,
             {
                 method: "POST",
                 body: form
