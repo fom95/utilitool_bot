@@ -7,7 +7,7 @@
     {
       "binding": "TELEGRAM_BOT_TOKEN",
       "store_id": "c40cc3dcc6234fb98cab408bd2f302be",
-      "secret_name": "API_ID"
+      "secret_name": "TELEGRAM_BOT_TOKEN"
     }
   ],
 
