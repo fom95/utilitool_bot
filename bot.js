@@ -214,18 +214,25 @@ async function showBaseMenu(
     env,
     chatId,
     username,
-    userId = null
+    userId = null,
+    chatType = "private"
 ) {
     let existing = null;
 
-    for (let attempt = 0; attempt < 4; attempt++) {
+    for (
+        let attempt = 0;
+        attempt < 4;
+        attempt++
+    ) {
         existing =
             await getMenuState(
                 env,
                 chatId
             );
 
-        if (existing?.messageId) {
+        if (
+            existing?.messageId
+        ) {
             break;
         }
 
@@ -233,12 +240,15 @@ async function showBaseMenu(
             resolve =>
                 setTimeout(
                     resolve,
-                    150 * (attempt + 1)
+                    150 *
+                        (attempt + 1)
                 )
         );
     }
 
-    if (existing?.messageId) {
+    if (
+        existing?.messageId
+    ) {
         try {
             await deleteMessage(
                 env,
@@ -258,7 +268,8 @@ async function showBaseMenu(
             env,
             chatId,
             username,
-            userId
+            userId,
+            chatType
         );
 
     return message.message_id;
@@ -504,6 +515,7 @@ function mainMenu(
     return {
         text:
             `@${username}, what would you like me to do?`,
+
         reply_markup: {
             inline_keyboard:
                 isPrivate
@@ -529,7 +541,7 @@ function mainMenu(
                         [
                             {
                                 text:
-                                    "🖼 Change Profile Photo",
+                                    "Change Profile Photo",
                                 callback_data:
                                     "photo"
                             }
@@ -1961,6 +1973,7 @@ async function handleCallback(
                 username ||
                 "there",
                 existingState?.chatType ||
+                    message?.chat?.type ||
                     "private"
             )
         );
@@ -2004,9 +2017,10 @@ async function handleCallback(
             chatId,
             messageId,
             mainMenu(
-                sessionUsername ||
+                username ||
                 "there",
                 existingState?.chatType ||
+                    message?.chat?.type ||
                     "private"
             )
         );
@@ -2097,6 +2111,7 @@ async function handleCallback(
                 username ||
                 "there",
                 existingState?.chatType ||
+                    message?.chat?.type ||
                     "private"
             )
         );
@@ -2258,13 +2273,11 @@ async function handleMessage(
         ).trim();
 
     /*
-     * /start is handled automatically in
-     * private chats, without requiring a
-     * bot mention.
+     * /start always works in a private DM.
+     * It does not require @utilitool_bot.
      */
     if (
-        chat.type ===
-            "private" &&
+        chat.type === "private" &&
         /^\/start(?:@\w+)?(?:\s+.+)?$/i.test(
             text
         )
@@ -2279,12 +2292,17 @@ async function handleMessage(
             chatId,
             username,
             message.from?.id ||
-                null
+                null,
+            chat.type
         );
 
         return;
     }
 
+    /*
+     * Replies to images still require
+     * the bot to be mentioned.
+     */
     if (
         message.reply_to_message
     ) {
@@ -2311,6 +2329,10 @@ async function handleMessage(
         return;
     }
 
+    /*
+     * Normal menu summons still require
+     * @utilitool_bot in groups/channels.
+     */
     if (
         !isBotMentioned(message)
     ) {
@@ -2339,7 +2361,8 @@ async function handleMessage(
         chatId,
         username,
         message.from?.id ||
-            null
+            null,
+        chat.type
     );
 }
 
