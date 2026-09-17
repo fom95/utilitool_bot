@@ -1174,26 +1174,31 @@ async function handlePhotoReply(
         sessionId,
         {
             chatId,
-
+    
+            chatType:
+                menuState.chatType ||
+                message.chat?.type ||
+                "private",
+    
             fileId:
                 photo.file_id,
-
+    
             userId:
                 Number(
                     message.from?.id ||
                     menuState.requesterId
                 ),
-
+    
             username:
                 message.from?.username ||
                 menuState.lastUsername ||
                 menuState.requesterUsername ||
                 null,
-
+    
             firstName:
                 message.from?.first_name ||
                 null,
-
+    
             menuMessageId:
                 menuState.messageId
         }
@@ -1667,7 +1672,9 @@ async function handleCropSubmit(
                         env,
                         session.chatId,
                         displayName,
-                        auth.user.id
+                        auth.user.id,
+                        session.chatType ||
+                            "private"
                     );
 
                 console.log(
@@ -1745,6 +1752,16 @@ async function handleCropCancel(
         session.username ||
         null;
 
+    const displayName =
+        username ||
+        auth.user?.first_name ||
+        session.firstName ||
+        "User";
+
+    const chatType =
+        session.chatType ||
+        "private";
+
     if (
         session.menuMessageId
     ) {
@@ -1754,10 +1771,8 @@ async function handleCropCancel(
                 session.chatId,
                 session.menuMessageId,
                 mainMenu(
-                    username ||
-                    auth.user?.first_name ||
-                    session.firstName ||
-                    "User"
+                    displayName,
+                    chatType
                 )
             );
 
@@ -1786,6 +1801,9 @@ async function handleCropCancel(
                     lastUsername:
                         username ||
                         null,
+
+                    chatType:
+                        chatType,
 
                     mode:
                         "base"
@@ -1822,6 +1840,9 @@ async function handleCropCancel(
                     lastUsername:
                         username ||
                         null,
+
+                    chatType:
+                        chatType,
 
                     mode:
                         "base"
