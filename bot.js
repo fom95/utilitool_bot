@@ -2734,6 +2734,124 @@ async function handleCropImage(
 }
 
 async function handleLibrary(
+    env,
+    request
+) {
+    const {
+        chatId,
+        chat,
+        owner
+    } =
+        await authorizeLibrary(
+            env,
+            request
+        );
+
+    const library =
+        await getProfileLibrary(
+            env,
+            owner.id
+        );
+
+    const chats =
+        await getProfileOwnerChats(
+            env,
+            owner.id
+        );
+
+    return json({
+        success: true,
+
+        currentChat: {
+            id:
+                chat.id,
+
+            type:
+                chat.type ||
+                null,
+
+            title:
+                chat.title ||
+                chat.username ||
+                String(chat.id),
+
+            username:
+                chat.username ||
+                null
+        },
+
+        owner: {
+            id:
+                owner.id,
+
+            username:
+                owner.username ||
+                null,
+
+            firstName:
+                owner.first_name ||
+                null,
+
+            lastName:
+                owner.last_name ||
+                null
+        },
+
+        chats,
+
+        photos:
+            library.map(
+                photo => ({
+                    id:
+                        photo.id,
+
+                    fileId:
+                        photo.fileId,
+
+                    thumbFileId:
+                        photo.thumbFileId ||
+                        photo.fileId,
+
+                    width:
+                        photo.width,
+
+                    height:
+                        photo.height,
+
+                    fileSize:
+                        photo.fileSize,
+
+                    archiveChatId:
+                        photo.archiveChatId ||
+                        null,
+
+                    archiveMessageId:
+                        photo.archiveMessageId ||
+                        null,
+
+                    sourceChatId:
+                        photo.sourceChatId ||
+                        null,
+
+                    sourceChatType:
+                        photo.sourceChatType ||
+                        null,
+
+                    sourceChatTitle:
+                        photo.sourceChatTitle ||
+                        null,
+
+                    sourceChatUsername:
+                        photo.sourceChatUsername ||
+                        null,
+
+                    createdAt:
+                        photo.createdAt
+                })
+            )
+    });
+}
+
 
 async function handleLibraryPhoto(
     env,
