@@ -9,6 +9,15 @@ async function telegram(env, method, body = null) {
     const token =
         await BOT_TOKEN(env);
 
+    if (
+        typeof token !== "string" ||
+        !token
+    ) {
+        throw new Error(
+            `${method}: Telegram bot token is missing.`
+        );
+    }
+
     const url =
         `https://api.telegram.org/bot${token}/${method}`;
 
@@ -38,13 +47,13 @@ async function telegram(env, method, body = null) {
             JSON.parse(text);
     } catch {
         throw new Error(
-            `${method}: Telegram returned HTTP ${response.status}`
+            `${method}: HTTP ${response.status}; non-JSON response: ${text.slice(0, 300)}`
         );
     }
 
     if (!data.ok) {
         throw new Error(
-            `${method}: ${data.description || "Telegram API error"}`
+            `${method}: HTTP ${response.status}; Telegram ${data.error_code}: ${data.description || "Unknown error"}`
         );
     }
 
@@ -234,30 +243,15 @@ async function deleteSession(env, id) {
     await CACHE(env).delete(`crop:${id}`);
 }
 
-function isSetPhotoCommand(message, botUsername) {
+function isSetPhotoCommand(message) {
     const text =
         message.text ||
         message.caption ||
         "";
 
-    const match =
-        text.trim().match(
-            /^\/setphoto(?:@([A-Za-z0-9_]+))?(?:\s|$)/i
-        );
-
-    if (!match) {
-        return false;
-    }
-
-    if (
-        match[1] &&
-        match[1].toLowerCase() !==
-            botUsername.toLowerCase()
-    ) {
-        return false;
-    }
-
-    return true;
+    return /^\/setphoto(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(
+        text.trim()
+    );
 }
 
 function getCommandReplyPhoto(message) {
@@ -306,8 +300,7 @@ function usernameForUser(user) {
 
 async function handleSetPhotoCommand(
     env,
-    message,
-    botUsername
+    message
 ) {
     const photo =
         getCommandReplyPhoto(message);
@@ -366,7 +359,7 @@ async function handleSetPhotoCommand(
     );
 
     const cropUrl =
-        `https://t.me/${botUsername}/set_photo?startapp=${encodeURIComponent(sessionId)}`;
+        `https://t.me/utilitool_bot/set_photo?startapp=${encodeURIComponent(sessionId)}`;
 
     await sendMessage(
         env,
@@ -1095,54 +1088,20 @@ async function handleMyChatMember(
 
 async function handleMessage(
     env,
-    message
+    message,
+    origin
 ) {
-    const bot =
-        await getBot(env);
-
     if (
-        isSetPhotoCommand(
-            message,
-            bot.username || ""
-        )
+        isSetPhotoCommand(message)
     ) {
         await handleSetPhotoCommand(
             env,
             message,
-            bot.username || ""
+            "",
+            origin
         );
 
         return;
-    }
-
-    if (
-        Array.isArray(
-            message.new_chat_members
-        )
-    ) {
-        const added =
-            message.new_chat_members.some(
-                user =>
-                    user.id === bot.id
-            );
-
-        if (added) {
-            await sendMessage(
-                env,
-                message.chat.id,
-                mainMenu(
-                    bot.username ||
-                    "User"
-                ).text,
-                {
-                    reply_markup:
-                        mainMenu(
-                            bot.username ||
-                            "User"
-                        ).reply_markup
-                }
-            );
-        }
     }
 }
 
