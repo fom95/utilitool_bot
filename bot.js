@@ -177,36 +177,30 @@ async function createBaseMenu(
             }
         );
 
-    await saveMenuState(
-        env,
+    const state = {
         chatId,
-        message.message_id,
-        username,
-        userId
-    );
+
+        messageId:
+            message.message_id,
+
+        username:
+            username || null,
+
+        lastUserId:
+            userId != null
+                ? Number(userId)
+                : null,
+
+        lastUsername:
+            username || null,
+
+        mode:
+            "base"
+    };
 
     await CACHE(env).put(
         menuStateKey(chatId),
-        JSON.stringify({
-            chatId,
-
-            messageId:
-                message.message_id,
-
-            username:
-                username || null,
-
-            lastUserId:
-                userId != null
-                    ? Number(userId)
-                    : null,
-
-            lastUsername:
-                username || null,
-
-            mode:
-                "base"
-        })
+        JSON.stringify(state)
     );
 
     return message;
@@ -223,6 +217,60 @@ async function showBaseMenu(
             env,
             chatId
         );
+
+    if (existing?.messageId) {
+        try {
+            await deleteMessage(
+                env,
+                chatId,
+                existing.messageId
+            );
+        } catch (error) {
+            console.error(
+                "Unable to delete previous menu:",
+                error
+            );
+        }
+    }
+
+    const message =
+        await createBaseMenu(
+            env,
+            chatId,
+            username,
+            userId
+        );
+
+    return message.message_id;
+}
+
+async function showBaseMenu(
+    env,
+    chatId,
+    username,
+    userId = null
+) {
+    let existing = null;
+
+    for (let attempt = 0; attempt < 4; attempt++) {
+        existing =
+            await getMenuState(
+                env,
+                chatId
+            );
+
+        if (existing?.messageId) {
+            break;
+        }
+
+        await new Promise(
+            resolve =>
+                setTimeout(
+                    resolve,
+                    150 * (attempt + 1)
+                )
+        );
+    }
 
     if (existing?.messageId) {
         try {
