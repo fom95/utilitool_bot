@@ -1149,21 +1149,31 @@ async function handleWebhook(
             { status: 400 }
         );
     }
+
     try {
         await handleUpdate(
             env,
             update
         );
     } catch (error) {
-        console.error(
-            "Telegram update error:",
-            error
+        const message =
+            error instanceof Error
+                ? error.message
+                : String(error);
+
+        return new Response(
+            `Telegram update error: ${message}`,
+            {
+                status: 500,
+                headers: {
+                    "Content-Type":
+                        "text/plain"
+                }
+            }
         );
     }
 
-    return new Response(
-        "OK"
-    );
+    return new Response("OK");
 }
 
 export default {
