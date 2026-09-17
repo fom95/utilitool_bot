@@ -552,19 +552,19 @@ function createMenuContext(
     context.edit =
         async menu => {
             const messageId =
-                context.state?.messageId ||
-                context.message?.message_id;
-    
+                context.message?.message_id ||
+                context.state?.messageId;
+
             if (!messageId) {
                 return null;
             }
-    
+
             const rendered =
                 getMenu(
                     menu,
                     context
                 );
-    
+
             return editMessage(
                 env,
                 context.chatId,
