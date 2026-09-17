@@ -1089,7 +1089,16 @@ async function handleCropImage(
             "session"
         );
 
+    console.log(
+        "CROP IMAGE REQUEST:",
+        sessionId
+    );
+
     if (!sessionId) {
+        console.error(
+            "CROP IMAGE: missing session"
+        );
+
         return new Response(
             "Missing session.",
             {
@@ -1104,7 +1113,32 @@ async function handleCropImage(
             sessionId
         );
 
+    console.log(
+        "CROP IMAGE SESSION:",
+        JSON.stringify(
+            session
+                ? {
+                    chatId:
+                        session.chatId,
+
+                    userId:
+                        session.userId,
+
+                    fileId:
+                        session.fileId,
+
+                    menuMessageId:
+                        session.menuMessageId
+                }
+                : null
+        )
+    );
+
     if (!session) {
+        console.error(
+            "CROP IMAGE: session not found"
+        );
+
         return new Response(
             "Crop session expired.",
             {
@@ -1119,7 +1153,16 @@ async function handleCropImage(
             request,
             session
         );
+
+        console.log(
+            "CROP IMAGE: authorization successful"
+        );
     } catch (error) {
+        console.error(
+            "CROP IMAGE: authorization failed:",
+            error
+        );
+
         return new Response(
             error.message,
             {
@@ -1129,6 +1172,10 @@ async function handleCropImage(
     }
 
     try {
+        console.log(
+            "CROP IMAGE: calling Telegram getFile"
+        );
+
         const {
             response,
             file
@@ -1137,6 +1184,30 @@ async function handleCropImage(
                 env,
                 session.fileId
             );
+
+        console.log(
+            "CROP IMAGE: Telegram response:",
+            JSON.stringify({
+                filePath:
+                    file.file_path,
+
+                fileSize:
+                    file.file_size,
+
+                contentType:
+                    response.headers.get(
+                        "Content-Type"
+                    ),
+
+                contentLength:
+                    response.headers.get(
+                        "Content-Length"
+                    ),
+
+                status:
+                    response.status
+            })
+        );
 
         const headers =
             new Headers();
@@ -1166,12 +1237,13 @@ async function handleCropImage(
         return new Response(
             response.body,
             {
+                status: 200,
                 headers
             }
         );
     } catch (error) {
         console.error(
-            "Crop image error:",
+            "CROP IMAGE: Telegram download failed:",
             error
         );
 
@@ -1440,12 +1512,15 @@ async function handleCropCancel(
         );
     }
 
+    let auth;
+
     try {
-        await authorizeSession(
-            env,
-            request,
-            session
-        );
+        auth =
+            await authorizeSession(
+                env,
+                request,
+                session
+            );
     } catch (error) {
         return new Response(
             error.message,
@@ -1460,6 +1535,11 @@ async function handleCropCancel(
         sessionId
     );
 
+    const username =
+        auth.user?.username ||
+        session.username ||
+        null;
+
     if (
         session.menuMessageId
     ) {
@@ -1469,9 +1549,42 @@ async function handleCropCancel(
                 session.chatId,
                 session.menuMessageId,
                 mainMenu(
-                    session.username ||
-                        "there"
+                    username ||
+                    auth.user?.first_name ||
+                    session.firstName ||
+                    "User"
                 )
+            );
+
+            await CACHE(env).put(
+                menuStateKey(
+                    session.chatId
+                ),
+                JSON.stringify({
+                    chatId:
+                        session.chatId,
+
+                    messageId:
+                        session.menuMessageId,
+
+                    username:
+                        username ||
+                        auth.user?.first_name ||
+                        session.firstName ||
+                        null,
+
+                    lastUserId:
+                        Number(
+                            auth.user.id
+                        ),
+
+                    lastUsername:
+                        username ||
+                        null,
+
+                    mode:
+                        "base"
+                })
             );
         } catch (error) {
             console.error(
@@ -1479,12 +1592,36 @@ async function handleCropCancel(
                 error
             );
 
-            /*
-             * The menu may have been deleted.
-             * Don't create another menu here.
-             * The next @bot invocation will create
-             * a new active menu if necessary.
-             */
+            await CACHE(env).put(
+                menuStateKey(
+                    session.chatId
+                ),
+                JSON.stringify({
+                    chatId:
+                        session.chatId,
+
+                    messageId:
+                        session.menuMessageId,
+
+                    username:
+                        username ||
+                        auth.user?.first_name ||
+                        session.firstName ||
+                        null,
+
+                    lastUserId:
+                        Number(
+                            auth.user.id
+                        ),
+
+                    lastUsername:
+                        username ||
+                        null,
+
+                    mode:
+                        "base"
+                })
+            );
         }
     }
 
@@ -1630,40 +1767,48 @@ async function handleCallback(
     }
 
     if (data === "cancel_photo") {
-    await telegram(
-        env,
-        "answerCallbackQuery",
-        {
-            callback_query_id:
-                callback.id
-        }
-    );
-
-    await CACHE(env).put(
-        menuStateKey(chatId),
-        JSON.stringify({
+        await answerCallback(
+            env,
+            callback.id
+        );
+    
+        await CACHE(env).put(
+            menuStateKey(chatId),
+            JSON.stringify({
+                chatId,
+    
+                messageId,
+    
+                username:
+                    callback.from?.username ||
+                    null,
+    
+                lastUserId:
+                    Number(
+                        callback.from.id
+                    ),
+    
+                lastUsername:
+                    callback.from?.username ||
+                    null,
+    
+                mode:
+                    "base"
+            })
+        );
+    
+        await editMessage(
+            env,
             chatId,
             messageId,
-            username:
+            mainMenu(
                 callback.from?.username ||
-                null,
-            mode:
-                "base"
-        })
-    );
-
-    await editMessage(
-        env,
-        chatId,
-        messageId,
-        mainMenu(
-            callback.from?.username ||
-                "there"
-        )
-    );
-
-    return;
-}
+                    "there"
+            )
+        );
+    
+        return;
+    }
 
     if (
         data.startsWith(
@@ -1674,43 +1819,62 @@ async function handleCallback(
             data.slice(
                 "cancel_photo:".length
             );
-
-        await telegram(
+    
+        await answerCallback(
             env,
-            "answerCallbackQuery",
-            {
-                callback_query_id:
-                    callback.id
-            }
+            callback.id
         );
-
+    
         const session =
             await getSession(
                 env,
                 sessionId
             );
-
-        /*
-         * Session may already have expired.
-         * Either way, the desired result is
-         * the base menu.
-         */
+    
         await deleteSession(
             env,
             sessionId
         );
-
+    
+        const username =
+            session?.username ||
+            callback.from?.username ||
+            null;
+    
         await editMessage(
             env,
             chatId,
             messageId,
             mainMenu(
-                session?.username ||
-                    callback.from?.username ||
-                    "there"
+                username ||
+                "there"
             )
         );
-
+    
+        await CACHE(env).put(
+            menuStateKey(chatId),
+            JSON.stringify({
+                chatId,
+    
+                messageId,
+    
+                username:
+                    username,
+    
+                lastUserId:
+                    Number(
+                        callback.from.id
+                    ),
+    
+                lastUsername:
+                    callback.from?.username ||
+                    null,
+    
+                mode:
+                    "base"
+            })
+        );
+    
         return;
     }
 
