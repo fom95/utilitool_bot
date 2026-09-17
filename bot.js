@@ -375,7 +375,9 @@ async function validateTelegramInitData(
     }
 
     const params =
-        new URLSearchParams(initData);
+        new URLSearchParams(
+            initData
+        );
 
     const receivedHash =
         params.get("hash");
@@ -388,27 +390,34 @@ async function validateTelegramInitData(
 
     params.delete("hash");
 
-    const pairs =
-        Array.from(params.entries())
-            .sort(
-                ([a], [b]) =>
-                    a.localeCompare(b)
-            )
+    params.sort();
+
+    const dataCheckString =
+        Array.from(
+            params.entries()
+        )
             .map(
                 ([key, value]) =>
                     `${key}=${value}`
-            );
-
-    const dataCheckString =
-        pairs.join("\n");
+            )
+            .join("\n");
 
     const encoder =
         new TextEncoder();
 
     const token =
         await BOT_TOKEN(env);
-    
-    const keyMaterial =
+
+    if (
+        typeof token !== "string" ||
+        !token
+    ) {
+        throw new Error(
+            "Telegram bot token is missing."
+        );
+    }
+
+    const secretKeyMaterial =
         await crypto.subtle.importKey(
             "raw",
             encoder.encode(token),
@@ -423,8 +432,10 @@ async function validateTelegramInitData(
     const secretKey =
         await crypto.subtle.sign(
             "HMAC",
-            keyMaterial,
-            encoder.encode("WebAppData")
+            secretKeyMaterial,
+            encoder.encode(
+                "WebAppData"
+            )
         );
 
     const validationKey =
@@ -439,18 +450,21 @@ async function validateTelegramInitData(
             ["sign"]
         );
 
-    const calculated =
+    const calculatedHashBuffer =
         await crypto.subtle.sign(
             "HMAC",
             validationKey,
-            encoder.encode(dataCheckString)
+            encoder.encode(
+                dataCheckString
+            )
         );
 
-    const calculatedBytes =
-        new Uint8Array(calculated);
-
     const calculatedHash =
-        Array.from(calculatedBytes)
+        Array.from(
+            new Uint8Array(
+                calculatedHashBuffer
+            )
+        )
             .map(
                 byte =>
                     byte
@@ -488,11 +502,22 @@ async function validateTelegramInitData(
 
     const authDate =
         Number(
-            params.get("auth_date")
+            params.get(
+                "auth_date"
+            )
         );
 
     if (
-        !Number.isFinite(authDate) ||
+        !Number.isFinite(
+            authDate
+        )
+    ) {
+        throw new Error(
+            "Telegram initialization data has no valid auth date."
+        );
+    }
+
+    if (
         Math.abs(
             Date.now() / 1000 -
             authDate
@@ -511,7 +536,9 @@ async function validateTelegramInitData(
     if (userData) {
         try {
             user =
-                JSON.parse(userData);
+                JSON.parse(
+                    userData
+                );
         } catch {
             throw new Error(
                 "Invalid Telegram user data."
@@ -523,21 +550,6 @@ async function validateTelegramInitData(
         user,
         params
     };
-}
-
-function getInitData(request) {
-    return (
-        request.headers.get(
-            "X-Telegram-Init-Data"
-        ) ||
-        request.headers.get(
-            "Authorization"
-        )?.replace(
-            /^tma\s+/i,
-            ""
-        ) ||
-        ""
-    );
 }
 
 async function authorizeSession(
@@ -1200,13 +1212,11 @@ export default {
                 const token =
                     await BOT_TOKEN(env);
         
-                const telegramResponse =
-                    await fetch(
-                        `https://api.telegram.org/bot${token}/getMe`
+                const me =
+                    await telegram(
+                        env,
+                        "getMe"
                     );
-        
-                const telegramText =
-                    await telegramResponse.text();
         
                 return Response.json({
                     tokenType:
@@ -1219,7 +1229,9 @@ export default {
         
                     tokenFormat:
                         typeof token === "string"
-                            ? /^\d+:[A-Za-z0-9_-]+$/.test(token)
+                            ? /^\d+:[A-Za-z0-9_-]+$/.test(
+                                  token
+                              )
                             : false,
         
                     tokenPrefix:
@@ -1227,11 +1239,11 @@ export default {
                             ? token.slice(0, 10)
                             : null,
         
-                    telegramStatus:
-                        telegramResponse.status,
+                    botId:
+                        me.id,
         
-                    telegramResponse:
-                        telegramText
+                    botUsername:
+                        me.username
                 });
             } catch (error) {
                 return Response.json(
@@ -1241,7 +1253,9 @@ export default {
                                 ? error.message
                                 : String(error)
                     },
-                    { status: 500 }
+                    {
+                        status: 500
+                    }
                 );
             }
         }
