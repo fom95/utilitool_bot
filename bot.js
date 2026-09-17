@@ -932,10 +932,6 @@ async function handlePhotoReply(
     );
 
     if (!chatId) {
-        console.log(
-            "PHOTO REPLY STOP: no chat ID"
-        );
-
         return;
     }
 
@@ -990,7 +986,7 @@ async function handlePhotoReply(
             message.from.id,
             menuState.requesterId
         );
-    
+
         return;
     }
 
@@ -1005,10 +1001,6 @@ async function handlePhotoReply(
     );
 
     if (!photo) {
-        console.log(
-            "PHOTO REPLY STOP: no image"
-        );
-
         await sendMessage(
             env,
             chatId,
@@ -1084,7 +1076,9 @@ async function handlePhotoReply(
     } catch (error) {
         console.error(
             "Unable to delete photo reply:",
-            error
+            error instanceof Error
+                ? error.message
+                : String(error)
         );
     }
 
@@ -1107,7 +1101,19 @@ async function handlePhotoReply(
     } catch (error) {
         console.error(
             "Unable to edit crop menu:",
-            error
+            error instanceof Error
+                ? error.message
+                : String(error)
+        );
+
+        console.error(
+            "Crop menu edit details:",
+            JSON.stringify({
+                chatId,
+                messageId:
+                    menuState.messageId,
+                sessionId
+            })
         );
 
         return;
