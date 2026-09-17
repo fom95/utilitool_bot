@@ -21,8 +21,13 @@ body {
     width: 100%;
     height: 100%;
     overflow: hidden;
+
+    overscroll-behavior: none;
+    touch-action: none;
+
     background: var(--tg-theme-bg-color, #ffffff);
     color: var(--tg-theme-text-color, #000000);
+
     font-family:
         -apple-system,
         BlinkMacSystemFont,
@@ -34,6 +39,9 @@ body {
     display: flex;
     flex-direction: column;
     align-items: center;
+
+    overscroll-behavior: none;
+    touch-action: none;
 }
 
 #title {
