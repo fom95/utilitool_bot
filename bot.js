@@ -1193,6 +1193,29 @@ export default {
             );
 
         if (
+            url.pathname === "/debug/webhook" &&
+            request.method === "GET"
+        ) {
+            const token =
+                await BOT_TOKEN(env);
+
+            const response =
+                await fetch(
+                    `https://api.telegram.org/bot${token}/getWebhookInfo`
+                );
+
+            return new Response(
+                await response.text(),
+                {
+                    headers: {
+                        "Content-Type":
+                            "application/json"
+                    }
+                }
+            );
+        }
+
+        if (
             request.method === "POST" &&
             url.pathname ===
                 "/telegram/webhook"
