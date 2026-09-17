@@ -385,80 +385,64 @@ function calculateMinimumScale() {
 }
 
 function clampCenter() {
-    const displayWidth =
-        imageWidth * scale;
+    const visibleWidth =
+        canvas.width / scale;
 
-    const displayHeight =
-        imageHeight * scale;
+    const visibleHeight =
+        canvas.height / scale;
 
-    const cropWidth =
-        canvas.width;
+    const halfVisibleWidth =
+        visibleWidth / 2;
 
-    const cropHeight =
-        canvas.height;
+    const halfVisibleHeight =
+        visibleHeight / 2;
 
-    const halfVisibleX =
-        cropWidth /
-        (2 * scale);
+    const minCenterX =
+        halfVisibleWidth;
 
-    const halfVisibleY =
-        cropHeight /
-        (2 * scale);
+    const maxCenterX =
+        imageWidth -
+        halfVisibleWidth;
 
-    const halfImageX =
-        imageWidth / 2;
+    const minCenterY =
+        halfVisibleHeight;
 
-    const halfImageY =
-        imageHeight / 2;
-
-    const minX =
-        halfImageX -
-        halfVisibleX;
-
-    const maxX =
-        halfImageX +
-        halfVisibleX;
-
-    const minY =
-        halfImageY -
-        halfVisibleY;
-
-    const maxY =
-        halfImageY +
-        halfVisibleY;
-
-    centerX =
-        Math.min(
-            Math.max(
-                centerX,
-                minX
-            ),
-            maxX
-        );
-
-    centerY =
-        Math.min(
-            Math.max(
-                centerY,
-                minY
-            ),
-            maxY
-        );
+    const maxCenterY =
+        imageHeight -
+        halfVisibleHeight;
 
     if (
-        displayWidth <=
-        cropWidth
+        visibleWidth >=
+        imageWidth
     ) {
         centerX =
             imageWidth / 2;
+    } else {
+        centerX =
+            Math.max(
+                minCenterX,
+                Math.min(
+                    centerX,
+                    maxCenterX
+                )
+            );
     }
 
     if (
-        displayHeight <=
-        cropHeight
+        visibleHeight >=
+        imageHeight
     ) {
         centerY =
             imageHeight / 2;
+    } else {
+        centerY =
+            Math.max(
+                minCenterY,
+                Math.min(
+                    centerY,
+                    maxCenterY
+                )
+            );
     }
 }
 
@@ -486,52 +470,20 @@ function draw() {
     const sourceHeight =
         size / scale;
 
-    let sx =
+    const sx =
         centerX -
         sourceWidth / 2;
 
-    let sy =
+    const sy =
         centerY -
         sourceHeight / 2;
-
-    sx =
-        Math.max(
-            0,
-            Math.min(
-                sx,
-                imageWidth -
-                    sourceWidth
-            )
-        );
-
-    sy =
-        Math.max(
-            0,
-            Math.min(
-                sy,
-                imageHeight -
-                    sourceHeight
-            )
-        );
-
-    const actualSourceWidth =
-        Math.min(
-            sourceWidth,
-            imageWidth
-        );
-
-    const actualSourceHeight =
-        Math.min(
-            sourceHeight,
-            imageHeight
-        );
 
     ctx.drawImage(
         image,
         sx,
         sy,
-        actualSourceWidth,
-        actualSourceHeight,
+        sourceWidth,
+        sourceHeight,
         0,
         0,
         size,
