@@ -461,7 +461,7 @@ function photoMenu() {
 
 function cropMenu(sessionId) {
     const cropUrl =
-        `https://t.me/utilitool_bot/set_photo?startapp=${encodeURIComponent(sessionId)}`;
+        `https://t.me/utilitool_bot?startapp=${encodeURIComponent(sessionId)}`;
 
     return {
         text:
