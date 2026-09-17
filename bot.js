@@ -557,7 +557,7 @@ function createMenuContext(
                 context.message?.message_id;
 
             if (!messageId) {
-                return null;
+                return context.send(menu);
             }
 
             const rendered =
@@ -566,12 +566,66 @@ function createMenuContext(
                     context
                 );
 
-            return editMessage(
-                env,
-                context.chatId,
-                messageId,
-                rendered
-            );
+            try {
+                return await editMessage(
+                    env,
+                    context.chatId,
+                    messageId,
+                    rendered
+                );
+            } catch (error) {
+                const errorMessage =
+                    error instanceof Error
+                        ? error.message
+                        : String(error);
+
+                if (
+                    !/message to edit not found/i.test(
+                        errorMessage
+                    )
+                ) {
+                    throw error;
+                }
+
+                console.log(
+                    "MENU MESSAGE NO LONGER EXISTS; CREATING REPLACEMENT:",
+                    JSON.stringify({
+                        chatId:
+                            context.chatId,
+
+                        oldMessageId:
+                            messageId,
+
+                        menu
+                    })
+                );
+
+                const sent =
+                    await sendMessage(
+                        env,
+                        context.chatId,
+                        rendered.text,
+                        {
+                            reply_markup:
+                                rendered.reply_markup
+                        }
+                    );
+
+                context.state =
+                    await updateMenuState(
+                        env,
+                        context.chatId,
+                        {
+                            messageId:
+                                sent.message_id,
+
+                            mode:
+                                menu
+                        }
+                    );
+
+                return sent;
+            }
         };
 
     context.send =
@@ -2100,6 +2154,12 @@ async function handlePhotoReply(
         );
     }
 
+        const currentMenuState =
+        await getMenuState(
+            env,
+            chatId
+        );
+
     const context =
         createMenuContext(
             env,
@@ -2113,7 +2173,7 @@ async function handlePhotoReply(
                 message,
 
                 state:
-                    menuState,
+                    currentMenuState,
 
                 data: {
                     sessionId
@@ -2143,7 +2203,8 @@ async function handlePhotoReply(
                 chatId,
 
                 messageId:
-                    menuState.messageId,
+                    currentMenuState?.messageId ||
+                    null,
 
                 sessionId
             })
