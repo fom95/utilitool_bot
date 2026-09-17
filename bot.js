@@ -415,6 +415,31 @@ function mainMenu(username) {
     };
 }
 
+function byeMenu() {
+    return {
+        text:
+            "Are you sure you want me to leave?",
+        reply_markup: {
+            inline_keyboard: [
+                [
+                    {
+                        text:
+                            "Yes",
+                        callback_data:
+                            "bye_confirm"
+                    },
+                    {
+                        text:
+                            "No",
+                        callback_data:
+                            "bye_cancel"
+                    }
+                ]
+            ]
+        }
+    };
+}
+
 function photoMenu() {
     return {
         text:
@@ -1713,86 +1738,58 @@ async function handleCallback(
         return;
     }
 
-    /*
-     * This callback message is now the active menu.
-     */
     const existingState =
         await getMenuState(
             env,
             chatId
         );
-    
-    await CACHE(env).put(
-        menuStateKey(chatId),
-        JSON.stringify({
-            ...(existingState || {}),
-    
-            chatId,
-    
-            messageId,
-    
-            username:
-                callback.from?.username ||
-                existingState?.username ||
-                null,
-    
-            lastUserId:
-                Number(callback.from.id),
-    
-            lastUsername:
-                callback.from?.username ||
-                existingState?.lastUsername ||
-                null
-        })
-    );
+
+    const username =
+        callback.from?.username ||
+        existingState?.username ||
+        null;
+
+    const userId =
+        Number(
+            callback.from?.id
+        );
 
     if (data === "photo") {
         await answerCallback(
             env,
             callback.id
         );
-    
+
         await CACHE(env).put(
             menuStateKey(chatId),
             JSON.stringify({
                 ...(existingState || {}),
-    
                 chatId,
-    
                 messageId,
-    
-                username:
-                    callback.from?.username ||
-                    existingState?.username ||
-                    null,
-    
+                username,
                 lastUserId:
-                    Number(callback.from.id),
-    
+                    userId,
                 lastUsername:
                     callback.from?.username ||
                     existingState?.lastUsername ||
                     null,
-    
                 requesterId:
-                    Number(callback.from.id),
-    
+                    userId,
                 requesterUsername:
                     callback.from?.username ||
                     null,
-    
                 mode:
                     "waiting_for_photo"
             })
         );
-    
+
         await editMessage(
             env,
             chatId,
             messageId,
             photoMenu()
         );
-    
+
         return;
     }
 
@@ -1801,42 +1798,33 @@ async function handleCallback(
             env,
             callback.id
         );
-    
+
         await CACHE(env).put(
             menuStateKey(chatId),
             JSON.stringify({
                 chatId,
-    
                 messageId,
-    
-                username:
-                    callback.from?.username ||
-                    null,
-    
+                username,
                 lastUserId:
-                    Number(
-                        callback.from.id
-                    ),
-    
+                    userId,
                 lastUsername:
                     callback.from?.username ||
                     null,
-    
                 mode:
                     "base"
             })
         );
-    
+
         await editMessage(
             env,
             chatId,
             messageId,
             mainMenu(
-                callback.from?.username ||
-                    "there"
+                username ||
+                "there"
             )
         );
-    
+
         return;
     }
 
@@ -1849,28 +1837,116 @@ async function handleCallback(
             data.slice(
                 "cancel_photo:".length
             );
-    
+
         await answerCallback(
             env,
             callback.id
         );
-    
+
         const session =
             await getSession(
                 env,
                 sessionId
             );
-    
+
         await deleteSession(
             env,
             sessionId
         );
-    
-        const username =
+
+        const sessionUsername =
             session?.username ||
-            callback.from?.username ||
+            username ||
             null;
-    
+
+        await editMessage(
+            env,
+            chatId,
+            messageId,
+            mainMenu(
+                sessionUsername ||
+                "there"
+            )
+        );
+
+        await CACHE(env).put(
+            menuStateKey(chatId),
+            JSON.stringify({
+                chatId,
+                messageId,
+                username:
+                    sessionUsername,
+                lastUserId:
+                    userId,
+                lastUsername:
+                    callback.from?.username ||
+                    null,
+                mode:
+                    "base"
+            })
+        );
+
+        return;
+    }
+
+    if (data === "bye") {
+        await answerCallback(
+            env,
+            callback.id
+        );
+
+        await CACHE(env).put(
+            menuStateKey(chatId),
+            JSON.stringify({
+                ...(existingState || {}),
+                chatId,
+                messageId,
+                username,
+                lastUserId:
+                    userId,
+                lastUsername:
+                    callback.from?.username ||
+                    existingState?.lastUsername ||
+                    null,
+                mode:
+                    "confirm_bye"
+            })
+        );
+
+        await editMessage(
+            env,
+            chatId,
+            messageId,
+            byeMenu()
+        );
+
+        return;
+    }
+
+    if (data === "bye_cancel") {
+        await answerCallback(
+            env,
+            callback.id
+        );
+
+        await CACHE(env).put(
+            menuStateKey(chatId),
+            JSON.stringify({
+                ...(existingState || {}),
+                chatId,
+                messageId,
+                username,
+                lastUserId:
+                    userId,
+                lastUsername:
+                    callback.from?.username ||
+                    existingState?.lastUsername ||
+                    null,
+                mode:
+                    "base"
+            })
+        );
+
         await editMessage(
             env,
             chatId,
@@ -1880,58 +1956,28 @@ async function handleCallback(
                 "there"
             )
         );
-    
-        await CACHE(env).put(
-            menuStateKey(chatId),
-            JSON.stringify({
-                chatId,
-    
-                messageId,
-    
-                username:
-                    username,
-    
-                lastUserId:
-                    Number(
-                        callback.from.id
-                    ),
-    
-                lastUsername:
-                    callback.from?.username ||
-                    null,
-    
-                mode:
-                    "base"
-            })
-        );
-    
+
         return;
     }
 
-    if (data === "bye") {
-        await telegram(
+    if (data === "bye_confirm") {
+        await answerCallback(
             env,
-            "answerCallbackQuery",
-            {
-                callback_query_id:
-                    callback.id
-            }
+            callback.id
         );
 
-        await editMessage(
-            env,
-            chatId,
-            messageId,
-            {
-                text:
-                    "Bye!",
-                reply_markup:
-                    {
-                        inline_keyboard:
-                            []
-                    }
-            }
-        );
+        try {
+            await deleteMessage(
+                env,
+                chatId,
+                messageId
+            );
+        } catch (error) {
+            console.error(
+                "Unable to delete goodbye menu:",
+                error
+            );
+        }
 
         await deleteMenuState(
             env,
