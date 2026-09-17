@@ -1284,7 +1284,8 @@ async function handleCropImage(
 
 async function handleCropSubmit(
     env,
-    request
+    request,
+    ctx
 ) {
     let form;
 
@@ -1357,9 +1358,7 @@ async function handleCropSubmit(
         );
     }
 
-    if (
-        !auth.user?.id
-    ) {
+    if (!auth.user?.id) {
         return new Response(
             "Telegram user information is missing.",
             { status: 403 }
@@ -1387,11 +1386,9 @@ async function handleCropSubmit(
         );
     }
 
-    const type =
-        photo.type || "";
-
     if (
-        type !== "image/jpeg"
+        photo.type !==
+        "image/jpeg"
     ) {
         return new Response(
             "The cropped image must be JPEG.",
@@ -1410,55 +1407,19 @@ async function handleCropSubmit(
         );
 
     try {
+        console.log(
+            "CROP SUBMIT: setting chat photo"
+        );
+
         await setChatPhoto(
             env,
             session.chatId,
             blob
         );
 
-        await deleteSession(
-            env,
-            sessionId
+        console.log(
+            "CROP SUBMIT: chat photo changed successfully"
         );
-
-        const username =
-            auth.user.username ||
-            session.username ||
-            null;
-
-        const displayName =
-            username ||
-            auth.user.first_name ||
-            session.firstName ||
-            "User";
-
-        if (
-            session.menuMessageId
-        ) {
-            try {
-                await deleteMessage(
-                    env,
-                    session.chatId,
-                    session.menuMessageId
-                );
-            } catch (error) {
-                console.error(
-                    "Unable to delete old menu after photo change:",
-                    error
-                );
-            }
-        }
-
-        await createBaseMenu(
-            env,
-            session.chatId,
-            displayName,
-            auth.user.id
-        );
-
-        return Response.json({
-            success: true
-        });
     } catch (error) {
         console.error(
             "setChatPhoto error:",
@@ -1469,11 +1430,87 @@ async function handleCropSubmit(
             {
                 success: false,
                 error:
-                    error.message
+                    error instanceof Error
+                        ? error.message
+                        : String(error)
             },
-            { status: 502 }
+            {
+                status: 502
+            }
         );
     }
+
+    await deleteSession(
+        env,
+        sessionId
+    );
+
+    const username =
+        auth.user.username ||
+        session.username ||
+        null;
+
+    const displayName =
+        username ||
+        auth.user.first_name ||
+        session.firstName ||
+        "User";
+
+    /*
+     * The photo change itself succeeded.
+     *
+     * Do not make the Mini App wait for Telegram
+     * menu cleanup/recreation.
+     */
+    ctx.waitUntil(
+        (async () => {
+            if (
+                session.menuMessageId
+            ) {
+                try {
+                    await deleteMessage(
+                        env,
+                        session.chatId,
+                        session.menuMessageId
+                    );
+
+                    console.log(
+                        "CROP SUBMIT: old menu deleted:",
+                        session.menuMessageId
+                    );
+                } catch (error) {
+                    console.error(
+                        "Unable to delete old menu after photo change:",
+                        error
+                    );
+                }
+            }
+
+            try {
+                const newMenu =
+                    await createBaseMenu(
+                        env,
+                        session.chatId,
+                        displayName,
+                        auth.user.id
+                    );
+
+                console.log(
+                    "CROP SUBMIT: new menu created:",
+                    newMenu.message_id
+                );
+            } catch (error) {
+                console.error(
+                    "Unable to create new base menu after photo change:",
+                    error
+                );
+            }
+        })()
+    );
+
+    return Response.json({
+        success: true
+    });
 }
 
 async function handleCropCancel(
@@ -2171,7 +2208,8 @@ async function handleWebhook(
 export default {
     async fetch(
         request,
-        env
+        env,
+        ctx
     ) {
         const url =
             new URL(
@@ -2264,7 +2302,8 @@ export default {
         ) {
             return handleCropSubmit(
                 env,
-                request
+                request,
+                ctx
             );
         }
 
