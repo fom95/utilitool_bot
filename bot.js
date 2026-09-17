@@ -585,6 +585,21 @@ async function authorizeSession(
     return auth;
 }
 
+function getInitData(request) {
+    return (
+        request.headers.get(
+            "X-Telegram-Init-Data"
+        ) ||
+        request.headers
+            .get("Authorization")
+            ?.replace(
+                /^tma\s+/i,
+                ""
+            ) ||
+        ""
+    );
+}
+
 async function handleCropImage(
     env,
     request,
