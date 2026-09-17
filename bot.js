@@ -3122,13 +3122,17 @@ function pendingPhotoDeleteKey(chatId) {
 async function setPendingPhotoDelete(
     env,
     chatId,
-    userId
+    userId,
+    deleteNewChatPhoto = false,
+    saveProfilePhoto = true
 ) {
     await CACHE(env).put(
         pendingPhotoDeleteKey(chatId),
         JSON.stringify({
             chatId,
             userId,
+            deleteNewChatPhoto,
+            saveProfilePhoto,
             createdAt: Date.now()
         }),
         {
@@ -3356,6 +3360,11 @@ async function handleCropSubmit(
             "deleteNewChatPhoto"
         ) === "1";
 
+    const saveProfilePhoto =
+        formData.get(
+            "saveProfilePhoto"
+        ) !== "0";
+
     const photo =
         form.get(
             "photo"
@@ -3485,13 +3494,13 @@ async function handleCropSubmit(
             "CROP SUBMIT: setting chat photo"
         );
 
-        if (deleteNewChatPhoto) {
-            await setPendingPhotoDelete(
-                env,
-                session.chatId,
-                session.userId
-            );
-        }
+        await setPendingPhotoDelete(
+            env,
+            session.chatId,
+            session.userId,
+            deleteNewChatPhoto,
+            saveProfilePhoto
+        );
 
         await setChatPhoto(
             env,
@@ -4024,59 +4033,19 @@ async function handleNewChatPhoto(
     env,
     message
 ) {
-    if (
-        !Array.isArray(
-            message.new_chat_photo
-        ) ||
-        !message.new_chat_photo.length
-    ) {
-        return false;
-    }
-
     const chatId =
         message.chat?.id;
 
+    const photos =
+        message.new_chat_photo;
+
     if (
-        chatId === undefined ||
-        chatId === null
+        chatId == null ||
+        !Array.isArray(photos) ||
+        !photos.length
     ) {
         return false;
     }
-
-    /*
-     * Every new profile photo becomes a
-     * library entry.
-     *
-     * This is the only normal write to
-     * profileLibrary:<chatId>.
-     */
-
-    try {
-        await addProfileLibraryPhoto(
-            env,
-            chatId,
-            message.new_chat_photo
-        );
-
-        console.log(
-            "PROFILE LIBRARY: photo added:",
-            chatId,
-            message.message_id
-        );
-    } catch (error) {
-        console.error(
-            "Unable to add profile photo to library:",
-            error
-        );
-    }
-
-    /*
-     * If this photo change came from our
-     * Mini App/cropper and the user selected
-     * "Delete the generated profile-photo
-     * message", remove the Telegram service
-     * message.
-     */
 
     const pending =
         await getPendingPhotoDelete(
@@ -4084,6 +4053,126 @@ async function handleNewChatPhoto(
             chatId
         );
 
+    /*
+     * If this was a profile-photo change
+     * initiated through our cropper, the
+     * pending record tells us whether to
+     * save the resulting image.
+     *
+     * If there is no pending record, this
+     * was changed outside the bot and we
+     * preserve the existing behavior of
+     * adding it to the library.
+     */
+    const shouldSave =
+        pending
+            ? pending.saveProfilePhoto !== false
+            : true;
+
+    if (shouldSave) {
+        try {
+            const ordered =
+                photos
+                    .slice()
+                    .sort(
+                        (a, b) => {
+                            const aSize =
+                                a.file_size ||
+                                (
+                                    (a.width || 0) *
+                                    (a.height || 0)
+                                );
+
+                            const bSize =
+                                b.file_size ||
+                                (
+                                    (b.width || 0) *
+                                    (b.height || 0)
+                                );
+
+                            return (
+                                aSize -
+                                bSize
+                            );
+                        }
+                    );
+
+            const thumbnail =
+                ordered[0];
+
+            const full =
+                ordered[
+                    ordered.length - 1
+                ];
+
+            const library =
+                await getProfileLibrary(
+                    env,
+                    chatId
+                );
+
+            const duplicate =
+                library.some(
+                    item =>
+                        (
+                            full.file_unique_id &&
+                            item.fileUniqueId ===
+                                full.file_unique_id
+                        ) ||
+                        item.fileId ===
+                            full.file_id
+                );
+
+            if (!duplicate) {
+                library.push({
+                    id:
+                        crypto.randomUUID(),
+
+                    fileId:
+                        full.file_id,
+
+                    thumbFileId:
+                        thumbnail.file_id,
+
+                    fileUniqueId:
+                        full.file_unique_id ||
+                        null,
+
+                    width:
+                        full.width ||
+                        null,
+
+                    height:
+                        full.height ||
+                        null,
+
+                    fileSize:
+                        full.file_size ||
+                        null,
+
+                    createdAt:
+                        Date.now()
+                });
+
+                await saveProfileLibrary(
+                    env,
+                    chatId,
+                    library
+                );
+            }
+        } catch (error) {
+            console.error(
+                "Unable to save profile photo to library:",
+                error
+            );
+        }
+    }
+
+    /*
+     * The remainder handles the optional
+     * deletion of the Telegram service
+     * message generated by the change.
+     */
     if (!pending) {
         return true;
     }
@@ -4094,6 +4183,12 @@ async function handleNewChatPhoto(
     );
 
     if (
+        !pending.deleteNewChatPhoto
+    ) {
+        return true;
+    }
+
+    if (
         pending.userId &&
         message.from?.id &&
         Number(pending.userId) !==
@@ -4102,15 +4197,22 @@ async function handleNewChatPhoto(
         return true;
     }
 
+    const messageId =
+        message.message_id;
+
+    if (!messageId) {
+        return true;
+    }
+
     try {
         await deleteMessage(
             env,
             chatId,
-            message.message_id
+            messageId
         );
     } catch (error) {
         console.error(
-            "Unable to delete generated chat photo message:",
+            "Unable to delete new profile-photo message:",
             error
         );
     }
