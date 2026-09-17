@@ -1638,6 +1638,10 @@ function getReplyImage(
         return null;
     }
 
+    // --------------------------------------------------------
+    // Normal photo message
+    // --------------------------------------------------------
+
     if (
         Array.isArray(
             reply.photo
@@ -1652,6 +1656,36 @@ function getReplyImage(
                     (a.file_size || 0)
             )[0];
     }
+
+    // --------------------------------------------------------
+    // Chat profile photo service message
+    //
+    // Telegram provides this as:
+    //
+    //     new_chat_photo: PhotoSize[]
+    //
+    // This is the square image that was used as
+    // the chat's profile photo.
+    // --------------------------------------------------------
+
+    if (
+        Array.isArray(
+            reply.new_chat_photo
+        ) &&
+        reply.new_chat_photo.length
+    ) {
+        return reply.new_chat_photo
+            .slice()
+            .sort(
+                (a, b) =>
+                    (b.file_size || 0) -
+                    (a.file_size || 0)
+            )[0];
+    }
+
+    // --------------------------------------------------------
+    // Image document
+    // --------------------------------------------------------
 
     const document =
         reply.document;
