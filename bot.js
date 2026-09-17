@@ -1196,23 +1196,40 @@ export default {
             url.pathname === "/debug/webhook" &&
             request.method === "GET"
         ) {
-            const token =
-                await BOT_TOKEN(env);
+            try {
+                const token =
+                    await BOT_TOKEN(env);
 
-            const response =
-                await fetch(
-                    `https://api.telegram.org/bot${token}/getWebhookInfo`
+                return Response.json({
+                    tokenType:
+                        typeof token,
+
+                    tokenLength:
+                        typeof token === "string"
+                            ? token.length
+                            : null,
+
+                    tokenFormat:
+                        typeof token === "string"
+                            ? /^\d+:[A-Za-z0-9_-]+$/.test(token)
+                            : false,
+
+                    tokenPrefix:
+                        typeof token === "string"
+                            ? token.slice(0, 6)
+                            : null
+                });
+            } catch (error) {
+                return Response.json(
+                    {
+                        error:
+                            error instanceof Error
+                                ? error.message
+                                : String(error)
+                    },
+                    { status: 500 }
                 );
-
-            return new Response(
-                await response.text(),
-                {
-                    headers: {
-                        "Content-Type":
-                            "application/json"
-                    }
-                }
-            );
+            }
         }
 
         if (
