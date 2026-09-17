@@ -554,17 +554,17 @@ function createMenuContext(
             const messageId =
                 context.state?.messageId ||
                 context.message?.message_id;
-
+    
             if (!messageId) {
                 return null;
             }
-
+    
             const rendered =
                 getMenu(
                     menu,
                     context
                 );
-
+    
             return editMessage(
                 env,
                 context.chatId,
@@ -623,20 +623,20 @@ function createMenuContext(
 // ============================================================
 
 function getMenu(
-    menuName,
+    menu,
     context
 ) {
-    const menu =
-        Menus[menuName];
+    const template =
+        Menus[menu];
 
-    if (!menu) {
+    if (!template) {
         throw new Error(
-            `Unknown menu: ${menuName}`
+            `Unknown menu: ${menu}`
         );
     }
 
     return renderMenu(
-        menu,
+        template,
         context
     );
 }
@@ -1113,7 +1113,7 @@ const Actions = {
             });
 
             await ctx.edit(
-                Menus.photo
+                "photo"
             );
         },
 
@@ -1142,17 +1142,13 @@ const Actions = {
             });
 
             await ctx.edit(
-                Menus.base
+                "base"
             );
         },
 
 
     // --------------------------------------------------------
     // CANCEL PHOTO CROP
-    //
-    // This receives the session ID from:
-    //
-    //     cancel_photo:SESSION_ID
     // --------------------------------------------------------
 
     cancel_photo_session:
@@ -1185,7 +1181,7 @@ const Actions = {
             });
 
             await ctx.edit(
-                Menus.base
+                "base"
             );
         },
 
@@ -1202,7 +1198,7 @@ const Actions = {
             });
 
             await ctx.edit(
-                Menus.bye
+                "bye"
             );
         },
 
@@ -1219,7 +1215,7 @@ const Actions = {
             });
 
             await ctx.edit(
-                Menus.base
+                "base"
             );
         },
 
@@ -1255,7 +1251,6 @@ const Actions = {
             );
         }
 };
-
 
 // ============================================================
 // ACTION PARSING
@@ -1567,7 +1562,7 @@ async function handleStartCommand(
         return true;
     }
 
-    return true;
+    return false;
 }
 
 
@@ -1914,7 +1909,7 @@ async function handlePhotoReply(
 
     try {
         await context.edit(
-            Menus.crop
+            "crop"
         );
 
         console.log(
