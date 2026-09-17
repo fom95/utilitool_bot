@@ -983,32 +983,21 @@ const Menus = {
     // --------------------------------------------------------
 
     library:
-        Menu({
-            text:
-                "Choose a saved profile photo to use for this chat.",
-
-            buttons:
-                ctx => [
-                    Button(
-                        "🖼️ Open Photo Library",
-                        {
-                            url:
-                                ctx =>
-                                    `https://t.me/utilitool_bot/main?startapp=${encodeURIComponent(
-                                        `library:${ctx.chatId}`
-                                    )}`
-                        }
-                    ),
-
-                    Button(
-                        "Cancel",
-                        {
-                            action:
-                                "library_cancel"
-                        }
-                    )
-                ]
-        }),
+    Menu({
+        text:
+            "Choose a saved profile photo to use for this chat.",
+        buttons:
+            ctx => [
+                Button("🖼️ Open Photo Library", {
+                    url:
+                        `https://t.me/utilitool_bot/main?startapp=library_${encodeURIComponent(String(ctx.chatId))}`
+                }),
+                Button("Cancel", {
+                    action:
+                        "library_cancel"
+                })
+            ]
+    }),
 
 
     // --------------------------------------------------------
