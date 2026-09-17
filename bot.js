@@ -993,7 +993,10 @@ const Menus = {
                         "🖼️ Open Photo Library",
                         {
                             url:
-                                "https://t.me/utilitool_bot/main?startapp=library"
+                                ctx =>
+                                    `https://t.me/utilitool_bot/main?startapp=${encodeURIComponent(
+                                        `library:${ctx.chatId}`
+                                    )}`
                         }
                     ),
 
@@ -2320,6 +2323,66 @@ async function validateTelegramInitData(
     };
 }
 
+function getLibraryChatId(
+    auth
+) {
+    const startParam =
+        auth.params.get(
+            "start_param"
+        );
+
+    if (!startParam) {
+        throw new Error(
+            "Missing library launch parameter."
+        );
+    }
+
+    const match =
+        startParam.match(
+            /^library:(-?\d+)$/
+        );
+
+    if (!match) {
+        throw new Error(
+            "Invalid library launch parameter."
+        );
+    }
+
+    return match[1];
+}
+
+async function authorizeLibrary(
+    env,
+    request
+) {
+    const initData =
+        getInitData(
+            request
+        );
+
+    const auth =
+        await validateTelegramInitData(
+            env,
+            initData
+        );
+
+    if (!auth.user?.id) {
+        throw new Error(
+            "Telegram user information is missing."
+        );
+    }
+
+    const chatId =
+        getLibraryChatId(
+            auth
+        );
+
+    return {
+        auth,
+        chatId
+    };
+}
+
 
 function getInitData(
     request
@@ -2566,6 +2629,487 @@ async function handleCropImage(
     }
 }
 
+async function handleLibrary(
+    env,
+    request
+) {
+    let auth;
+
+    let chatId;
+
+    try {
+        ({
+            auth,
+            chatId
+        } =
+            await authorizeLibrary(
+                env,
+                request
+            ));
+    } catch (error) {
+        return Response.json(
+            {
+                success:
+                    false,
+
+                error:
+                    error instanceof Error
+                        ? error.message
+                        : String(error)
+            },
+            {
+                status:
+                    403
+            }
+        );
+    }
+
+    const library =
+        await getProfileLibrary(
+            env,
+            chatId
+        );
+
+    return Response.json({
+        success:
+            true,
+
+        chatId,
+
+        userId:
+            auth.user.id,
+
+        photos:
+            library.map(
+                photo => ({
+                    id:
+                        photo.id,
+
+                    width:
+                        photo.width,
+
+                    height:
+                        photo.height,
+
+                    fileSize:
+                        photo.fileSize,
+
+                    createdAt:
+                        photo.createdAt
+                })
+            )
+    });
+}
+
+async function handleLibraryPhoto(
+    env,
+    request,
+    url
+) {
+    let auth;
+
+    let chatId;
+
+    try {
+        ({
+            auth,
+            chatId
+        } =
+            await authorizeLibrary(
+                env,
+                request
+            ));
+    } catch (error) {
+        return new Response(
+            error instanceof Error
+                ? error.message
+                : String(error),
+            {
+                status:
+                    403
+            }
+        );
+    }
+
+    const photoId =
+        url.searchParams.get(
+            "id"
+        );
+
+    if (!photoId) {
+        return new Response(
+            "Missing photo ID.",
+            {
+                status:
+                    400
+            }
+        );
+    }
+
+    const library =
+        await getProfileLibrary(
+            env,
+            chatId
+        );
+
+    const photo =
+        library.find(
+            item =>
+                String(item.id) ===
+                String(photoId)
+        );
+
+    if (!photo) {
+        return new Response(
+            "Photo not found.",
+            {
+                status:
+                    404
+            }
+        );
+    }
+
+    try {
+        const {
+            response
+        } =
+            await downloadTelegramFile(
+                env,
+                photo.fileId
+            );
+
+        const headers =
+            new Headers();
+
+        headers.set(
+            "Content-Type",
+            response.headers.get(
+                "Content-Type"
+            ) ||
+                "image/jpeg"
+        );
+
+        headers.set(
+            "Cache-Control",
+            "private, max-age=300"
+        );
+
+        return new Response(
+            response.body,
+            {
+                status:
+                    200,
+
+                headers
+            }
+        );
+    } catch (error) {
+        console.error(
+            "Unable to download library photo:",
+            error
+        );
+
+        return new Response(
+            "Unable to retrieve library photo.",
+            {
+                status:
+                    502
+            }
+        );
+    }
+}
+
+async function handleLibraryApply(
+    env,
+    request,
+    ctx
+) {
+    let body;
+
+    try {
+        body =
+            await request.json();
+    } catch {
+        return Response.json(
+            {
+                success:
+                    false,
+
+                error:
+                    "Invalid request."
+            },
+            {
+                status:
+                    400
+            }
+        );
+    }
+
+    const photoId =
+        String(
+            body.photoId ||
+            ""
+        );
+
+    const deleteNewChatPhoto =
+        body.deleteNewChatPhoto === true;
+
+    if (!photoId) {
+        return Response.json(
+            {
+                success:
+                    false,
+
+                error:
+                    "Missing photo ID."
+            },
+            {
+                status:
+                    400
+            }
+        );
+    }
+
+    let auth;
+
+    let chatId;
+
+    try {
+        ({
+            auth,
+            chatId
+        } =
+            await authorizeLibrary(
+                env,
+                request
+            ));
+    } catch (error) {
+        return Response.json(
+            {
+                success:
+                    false,
+
+                error:
+                    error instanceof Error
+                        ? error.message
+                        : String(error)
+            },
+            {
+                status:
+                    403
+            }
+        );
+    }
+
+    const library =
+        await getProfileLibrary(
+            env,
+            chatId
+        );
+
+    const photo =
+        library.find(
+            item =>
+                String(item.id) ===
+                photoId
+        );
+
+    if (!photo) {
+        return Response.json(
+            {
+                success:
+                    false,
+
+                error:
+                    "That photo is no longer in the library."
+            },
+            {
+                status:
+                    404
+            }
+        );
+    }
+
+    try {
+        const {
+            response
+        } =
+            await downloadTelegramFile(
+                env,
+                photo.fileId
+            );
+
+        if (!response.ok) {
+            throw new Error(
+                `Telegram image download failed: ${response.status}`
+            );
+        }
+
+        const blob =
+            await response.blob();
+
+        if (deleteNewChatPhoto) {
+            await setPendingPhotoDelete(
+                env,
+                chatId,
+                auth.user.id
+            );
+        }
+
+        await setChatPhoto(
+            env,
+            chatId,
+            blob
+        );
+    } catch (error) {
+        console.error(
+            "LIBRARY APPLY:",
+            error
+        );
+
+        if (deleteNewChatPhoto) {
+            await deletePendingPhotoDelete(
+                env,
+                chatId
+            );
+        }
+
+        return Response.json(
+            {
+                success:
+                    false,
+
+                error:
+                    error instanceof Error
+                        ? error.message
+                        : String(error)
+            },
+            {
+                status:
+                    502
+            }
+        );
+    }
+
+    /*
+     * Return immediately. Telegram will send
+     * new_chat_photo separately, where the
+     * existing handler will take care of:
+     *
+     * 1. Adding the photo to the library.
+     * 2. Optionally deleting the service message.
+     */
+
+    return Response.json({
+        success:
+            true
+    });
+}
+
+async function handleLibraryDelete(
+    env,
+    request
+) {
+    let body;
+
+    try {
+        body =
+            await request.json();
+    } catch {
+        return Response.json(
+            {
+                success:
+                    false,
+
+                error:
+                    "Invalid request."
+            },
+            {
+                status:
+                    400
+            }
+        );
+    }
+
+    const photoId =
+        String(
+            body.photoId ||
+            ""
+        );
+
+    if (!photoId) {
+        return Response.json(
+            {
+                success:
+                    false,
+
+                error:
+                    "Missing photo ID."
+            },
+            {
+                status:
+                    400
+            }
+        );
+    }
+
+    let chatId;
+
+    try {
+        ({
+            chatId
+        } =
+            await authorizeLibrary(
+                env,
+                request
+            ));
+    } catch (error) {
+        return Response.json(
+            {
+                success:
+                    false,
+
+                error:
+                    error instanceof Error
+                        ? error.message
+                        : String(error)
+            },
+            {
+                status:
+                    403
+            }
+        );
+    }
+
+    const deleted =
+        await deleteProfileLibraryPhoto(
+            env,
+            chatId,
+            photoId
+        );
+
+    if (!deleted) {
+        return Response.json(
+            {
+                success:
+                    false,
+
+                error:
+                    "Photo not found."
+            },
+            {
+                status:
+                    404
+            }
+        );
+    }
+
+    return Response.json({
+        success:
+            true
+    });
+}
+
 
 // ============================================================
 // KV HELPERS
@@ -2610,6 +3154,160 @@ async function deletePendingPhotoDelete(
     await CACHE(env).delete(
         pendingPhotoDeleteKey(chatId)
     );
+}
+
+function profileLibraryKey(chatId) {
+    return `profileLibrary:${String(chatId)}`;
+}
+
+
+async function getProfileLibrary(
+    env,
+    chatId
+) {
+    const library =
+        await CACHE(env).get(
+            profileLibraryKey(chatId),
+            "json"
+        );
+
+    return Array.isArray(library)
+        ? library
+        : [];
+}
+
+
+async function saveProfileLibrary(
+    env,
+    chatId,
+    library
+) {
+    await CACHE(env).put(
+        profileLibraryKey(chatId),
+        JSON.stringify(library)
+    );
+
+    return library;
+}
+
+
+async function addProfileLibraryPhoto(
+    env,
+    chatId,
+    photo
+) {
+    if (
+        !photo ||
+        !photo.file_id
+    ) {
+        return null;
+    }
+
+    const library =
+        await getProfileLibrary(
+            env,
+            chatId
+        );
+
+    const largest =
+        photo
+            .slice()
+            .sort(
+                (a, b) =>
+                    (b.file_size || 0) -
+                    (a.file_size || 0)
+            )[0];
+
+    if (!largest?.file_id) {
+        return null;
+    }
+
+    const entry = {
+        id:
+            largest.file_unique_id ||
+            largest.file_id,
+
+        fileId:
+            largest.file_id,
+
+        width:
+            largest.width ||
+            0,
+
+        height:
+            largest.height ||
+            0,
+
+        fileSize:
+            largest.file_size ||
+            0,
+
+        createdAt:
+            Date.now()
+    };
+
+    const existingIndex =
+        library.findIndex(
+            item =>
+                item.id ===
+                entry.id
+        );
+
+    if (
+        existingIndex !== -1
+    ) {
+        library.splice(
+            existingIndex,
+            1
+        );
+    }
+
+    library.unshift(
+        entry
+    );
+
+    await saveProfileLibrary(
+        env,
+        chatId,
+        library
+    );
+
+    return entry;
+}
+
+
+async function deleteProfileLibraryPhoto(
+    env,
+    chatId,
+    photoId
+) {
+    const library =
+        await getProfileLibrary(
+            env,
+            chatId
+        );
+
+    const updated =
+        library.filter(
+            item =>
+                String(item.id) !==
+                String(photoId)
+        );
+
+    if (
+        updated.length ===
+        library.length
+    ) {
+        return false;
+    }
+
+    await saveProfileLibrary(
+        env,
+        chatId,
+        updated
+    );
+
+    return true;
 }
 
 
@@ -3345,6 +4043,41 @@ async function handleNewChatPhoto(
         return false;
     }
 
+    /*
+     * Every new profile photo becomes a
+     * library entry.
+     *
+     * This is the only normal write to
+     * profileLibrary:<chatId>.
+     */
+
+    try {
+        await addProfileLibraryPhoto(
+            env,
+            chatId,
+            message.new_chat_photo
+        );
+
+        console.log(
+            "PROFILE LIBRARY: photo added:",
+            chatId,
+            message.message_id
+        );
+    } catch (error) {
+        console.error(
+            "Unable to add profile photo to library:",
+            error
+        );
+    }
+
+    /*
+     * If this photo change came from our
+     * Mini App/cropper and the user selected
+     * "Delete the generated profile-photo
+     * message", remove the Telegram service
+     * message.
+     */
+
     const pending =
         await getPendingPhotoDelete(
             env,
@@ -3352,7 +4085,7 @@ async function handleNewChatPhoto(
         );
 
     if (!pending) {
-        return false;
+        return true;
     }
 
     await deletePendingPhotoDelete(
@@ -3366,7 +4099,7 @@ async function handleNewChatPhoto(
         Number(pending.userId) !==
             Number(message.from.id)
     ) {
-        return false;
+        return true;
     }
 
     try {
@@ -3675,6 +4408,75 @@ export default {
                     body.session ||
                     ""
                 )
+            );
+        }
+
+                // ----------------------------------------------------
+        // PROFILE PHOTO LIBRARY
+        // ----------------------------------------------------
+
+        if (
+            url.pathname ===
+                "/api/library" &&
+            request.method ===
+                "GET"
+        ) {
+            return handleLibrary(
+                env,
+                request
+            );
+        }
+
+
+        // ----------------------------------------------------
+        // PROFILE PHOTO LIBRARY IMAGE
+        // ----------------------------------------------------
+
+        if (
+            url.pathname ===
+                "/api/library/photo" &&
+            request.method ===
+                "GET"
+        ) {
+            return handleLibraryPhoto(
+                env,
+                request,
+                url
+            );
+        }
+
+
+        // ----------------------------------------------------
+        // APPLY PROFILE PHOTO FROM LIBRARY
+        // ----------------------------------------------------
+
+        if (
+            url.pathname ===
+                "/api/library/apply" &&
+            request.method ===
+                "POST"
+        ) {
+            return handleLibraryApply(
+                env,
+                request,
+                ctx
+            );
+        }
+
+
+        // ----------------------------------------------------
+        // DELETE PROFILE PHOTO FROM LIBRARY
+        // ----------------------------------------------------
+
+        if (
+            url.pathname ===
+                "/api/library/delete" &&
+            request.method ===
+                "POST"
+        ) {
+            return handleLibraryDelete(
+                env,
+                request
             );
         }
 
