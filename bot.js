@@ -185,6 +185,30 @@ async function createBaseMenu(
         userId
     );
 
+    await CACHE(env).put(
+        menuStateKey(chatId),
+        JSON.stringify({
+            chatId,
+
+            messageId:
+                message.message_id,
+
+            username:
+                username || null,
+
+            lastUserId:
+                userId != null
+                    ? Number(userId)
+                    : null,
+
+            lastUsername:
+                username || null,
+
+            mode:
+                "base"
+        })
+    );
+
     return message;
 }
 
@@ -1391,13 +1415,13 @@ async function handleCropSubmit(
             auth.user.username ||
             session.username ||
             null;
-        
+
         const displayName =
             username ||
             auth.user.first_name ||
             session.firstName ||
             "User";
-        
+
         if (
             session.menuMessageId
         ) {
@@ -1414,59 +1438,12 @@ async function handleCropSubmit(
                 );
             }
         }
-        
+
         await createBaseMenu(
             env,
             session.chatId,
             displayName,
             auth.user.id
-        );
-        
-        const menu =
-            mainMenu(
-                displayName
-            );
-        
-        const newMenu =
-            await sendMessage(
-                env,
-                session.chatId,
-                menu.text,
-                {
-                    reply_markup:
-                        menu.reply_markup
-                }
-            );
-        
-        const newMessageId =
-            newMenu?.message_id ||
-            null;
-        
-        await CACHE(env).put(
-            menuStateKey(
-                session.chatId
-            ),
-            JSON.stringify({
-                chatId:
-                    session.chatId,
-        
-                messageId:
-                    newMessageId,
-        
-                username:
-                    username,
-        
-                lastUserId:
-                    Number(
-                        auth.user.id
-                    ),
-        
-                lastUsername:
-                    username,
-        
-                mode:
-                    "base"
-            })
         );
 
         return Response.json({
