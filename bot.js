@@ -1199,25 +1199,39 @@ export default {
             try {
                 const token =
                     await BOT_TOKEN(env);
-
+        
+                const telegramResponse =
+                    await fetch(
+                        `https://api.telegram.org/bot${token}/getMe`
+                    );
+        
+                const telegramText =
+                    await telegramResponse.text();
+        
                 return Response.json({
                     tokenType:
                         typeof token,
-
+        
                     tokenLength:
                         typeof token === "string"
                             ? token.length
                             : null,
-
+        
                     tokenFormat:
                         typeof token === "string"
                             ? /^\d+:[A-Za-z0-9_-]+$/.test(token)
                             : false,
-
+        
                     tokenPrefix:
                         typeof token === "string"
-                            ? token.slice(0, 6)
-                            : null
+                            ? token.slice(0, 10)
+                            : null,
+        
+                    telegramStatus:
+                        telegramResponse.status,
+        
+                    telegramResponse:
+                        telegramText
                 });
             } catch (error) {
                 return Response.json(
