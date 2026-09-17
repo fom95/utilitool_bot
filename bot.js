@@ -552,8 +552,9 @@ function createMenuContext(
     context.edit =
         async menu => {
             const messageId =
-                context.message?.message_id ||
-                context.state?.messageId;
+                context.callback?.message?.message_id ||
+                context.state?.messageId ||
+                context.message?.message_id;
 
             if (!messageId) {
                 return null;
