@@ -163,7 +163,9 @@ async function createBaseMenu(
 ) {
     const menu =
         mainMenu(
-            username || "there"
+            username,
+            chat?.type ||
+                "private"
         );
 
     const message =
@@ -489,45 +491,64 @@ async function handleStartCommand(
     return true;
 }
 
-function mainMenu(username) {
+function mainMenu(
+    username,
+    chatType = "private"
+) {
+    const isPrivate =
+        chatType ===
+        "private";
+
     return {
         text:
             `@${username}, what would you like me to do?`,
         reply_markup: {
-            inline_keyboard: [
-                [
-                    {
-                        text:
-                            "Change Profile Photo",
-                        callback_data:
-                            "photo"
-                    }
-                ],
-                [
-                    {
-                        text:
-                            "➕ Add to Group",
-                        url:
-                            "https://t.me/utilitool_bot?startgroup=setup&admin=change_info"
-                    }
-                ],
-                [
-                    {
-                        text:
-                            "📢 Add to Channel",
-                        url:
-                            "https://t.me/utilitool_bot?startchannel&admin=change_info"
-                    }
-                ],
-                [
-                    {
-                        text:
-                            "Bye",
-                        callback_data:
-                            "bye"
-                    }
-                ]
-            ]
+            inline_keyboard:
+                isPrivate
+                    ? [
+                        [
+                            {
+                                text:
+                                    "➕ Add to Group",
+                                url:
+                                    "https://t.me/utilitool_bot?startgroup=setup&admin=change_info+delete_messages"
+                            }
+                        ],
+                        [
+                            {
+                                text:
+                                    "📢 Add to Channel",
+                                url:
+                                    "https://t.me/utilitool_bot?startchannel&admin=change_info+post_messages+edit_messages+delete_messages"
+                            }
+                        ],
+                        [
+                            {
+                                text:
+                                    "Bye",
+                                callback_data:
+                                    "bye"
+                            }
+                        ]
+                    ]
+                    : [
+                        [
+                            {
+                                text:
+                                    "🖼 Change Profile Photo",
+                                callback_data:
+                                    "photo"
+                            }
+                        ],
+                        [
+                            {
+                                text:
+                                    "Bye",
+                                callback_data:
+                                    "bye"
+                            }
+                        ]
+                    ]
         }
     };
 }
