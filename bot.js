@@ -2279,20 +2279,34 @@ async function handleMessage(
         ).trim();
 
     if (
-        text === "/setminiapp"
-    ) {
-        await setMiniAppMenuButton(
-            env
+    text === "/setminiapp"
+) {
+    try {
+        const result =
+            await setMiniAppMenuButton(
+                env
+            );
+
+        await sendMessage(
+            env,
+            chatId,
+            `Mini App menu button enabled.\n\nTelegram response: ${JSON.stringify(result)}`
+        );
+    } catch (error) {
+        console.error(
+            "Unable to set Mini App menu button:",
+            error
         );
 
         await sendMessage(
             env,
             chatId,
-            "Mini App menu button enabled."
+            `Failed to set Mini App menu button:\n\n${error.message}`
         );
-
-        return;
     }
+
+    return;
+}
 
     /*
      * /start always works in a private DM.
