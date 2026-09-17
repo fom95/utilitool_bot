@@ -150,10 +150,6 @@ function isBotMentioned(message) {
         return true;
     }
 
-    /*
-     * Fallback for cases where Telegram does not
-     * provide the mention entity.
-     */
     return /@utilitool_bot\b/i.test(
         text
     );
@@ -500,13 +496,25 @@ async function saveMenuState(
     messageId,
     username
 ) {
+    const existing =
+        await getMenuState(
+            env,
+            chatId
+        );
+
     await CACHE(env).put(
         menuStateKey(chatId),
         JSON.stringify({
+            ...(existing || {}),
+
             chatId,
+
             messageId,
+
             username:
-                username || null
+                username ||
+                existing?.username ||
+                null
         })
     );
 }
@@ -844,21 +852,44 @@ async function handlePhotoReply(
     env,
     message
 ) {
-    if (!message.reply_to_message) {
-        return;
-    }
+    const chatId =
+        message.chat?.id;
 
-    if (!isBotMentioned(message)) {
+    console.log(
+        "handlePhotoReply:",
+        JSON.stringify({
+            chatId,
+            messageId:
+                message.message_id,
+            fromId:
+                message.from?.id
+        })
+    );
+
+    if (!chatId) {
+        console.log(
+            "PHOTO REPLY STOP: no chat ID"
+        );
+
         return;
     }
 
     const menuState =
         await getMenuState(
             env,
-            message.chat.id
+            chatId
         );
 
+    console.log(
+        "PHOTO REPLY MENU STATE:",
+        JSON.stringify(menuState)
+    );
+
     if (!menuState) {
+        console.log(
+            "PHOTO REPLY STOP: no menu state"
+        );
+
         return;
     }
 
@@ -866,12 +897,21 @@ async function handlePhotoReply(
         menuState.mode !==
         "waiting_for_photo"
     ) {
+        console.log(
+            "PHOTO REPLY STOP: wrong menu mode:",
+            menuState.mode
+        );
+
         return;
     }
 
     if (
         !menuState.requesterId
     ) {
+        console.log(
+            "PHOTO REPLY STOP: no requester ID"
+        );
+
         return;
     }
 
@@ -879,6 +919,12 @@ async function handlePhotoReply(
         Number(message.from?.id) !==
         Number(menuState.requesterId)
     ) {
+        console.log(
+            "PHOTO REPLY STOP: requester mismatch:",
+            message.from?.id,
+            menuState.requesterId
+        );
+
         return;
     }
 
@@ -887,10 +933,19 @@ async function handlePhotoReply(
             message
         );
 
+    console.log(
+        "PHOTO REPLY IMAGE:",
+        JSON.stringify(photo)
+    );
+
     if (!photo) {
+        console.log(
+            "PHOTO REPLY STOP: no image"
+        );
+
         await sendMessage(
             env,
-            message.chat.id,
+            chatId,
             "The message you replied to doesn't contain an image."
         );
 
@@ -904,7 +959,7 @@ async function handlePhotoReply(
     ) {
         await sendMessage(
             env,
-            message.chat.id,
+            chatId,
             "That image is too large. Telegram bots can only download files up to 20 MB."
         );
 
@@ -918,8 +973,7 @@ async function handlePhotoReply(
         env,
         sessionId,
         {
-            chatId:
-                message.chat.id,
+            chatId,
 
             fileId:
                 photo.file_id,
@@ -940,14 +994,20 @@ async function handlePhotoReply(
         }
     );
 
-    /*
-     * The file_id is now stored in KV.
-     * The user's @bot message is no longer needed.
-     */
+    console.log(
+        "PHOTO REPLY SESSION SAVED:",
+        sessionId
+    );
+
     try {
         await deleteMessage(
             env,
-            message.chat.id,
+            chatId,
+            message.message_id
+        );
+
+        console.log(
+            "PHOTO REPLY DELETED:",
             message.message_id
         );
     } catch (error) {
@@ -965,9 +1025,13 @@ async function handlePhotoReply(
     try {
         await editMessage(
             env,
-            message.chat.id,
+            chatId,
             menuState.messageId,
             menu
+        );
+
+        console.log(
+            "PHOTO MENU CHANGED TO CROP MENU"
         );
     } catch (error) {
         console.error(
@@ -980,14 +1044,20 @@ async function handlePhotoReply(
 
     await CACHE(env).put(
         menuStateKey(
-            message.chat.id
+            chatId
         ),
         JSON.stringify({
             ...menuState,
+
             mode:
                 "crop",
+
             sessionId
         })
+    );
+
+    console.log(
+        "PHOTO REPLY COMPLETE"
     );
 }
 
@@ -1470,42 +1540,43 @@ async function handleCallback(
     );
 
     if (data === "photo") {
-    await telegram(
-        env,
-        "answerCallbackQuery",
-        {
-            callback_query_id:
-                callback.id
-        }
-    );
-
-    await CACHE(env).put(
-        menuStateKey(chatId),
-        JSON.stringify({
+        await answerCallback(
+            env,
+            callback.id
+        );
+    
+        await CACHE(env).put(
+            menuStateKey(chatId),
+            JSON.stringify({
+                chatId,
+    
+                messageId,
+    
+                username:
+                    callback.from?.username ||
+                    null,
+    
+                requesterId:
+                    callback.from.id,
+    
+                requesterUsername:
+                    callback.from?.username ||
+                    null,
+    
+                mode:
+                    "waiting_for_photo"
+            })
+        );
+    
+        await editMessage(
+            env,
             chatId,
             messageId,
-            username:
-                callback.from?.username ||
-                null,
-            requesterId:
-                callback.from.id,
-            requesterUsername:
-                callback.from?.username ||
-                null,
-            mode:
-                "waiting_for_photo"
-        })
-    );
-
-    await editMessage(
-        env,
-        chatId,
-        messageId,
-        photoMenu()
-    );
-
-    return;
-}
+            photoMenu()
+        );
+    
+        return;
+    }
 
     if (data === "cancel_photo") {
     await telegram(
@@ -1695,10 +1766,63 @@ async function handleMessage(
     env,
     message
 ) {
+    console.log(
+        "MESSAGE:",
+        JSON.stringify({
+            messageId:
+                message.message_id,
+
+            chatId:
+                message.chat?.id,
+
+            fromId:
+                message.from?.id,
+
+            text:
+                message.text,
+
+            caption:
+                message.caption,
+
+            hasReply:
+                !!message.reply_to_message,
+
+            replyId:
+                message.reply_to_message?.message_id,
+
+            replyHasPhoto:
+                Array.isArray(
+                    message.reply_to_message?.photo
+                ) &&
+                message.reply_to_message.photo.length > 0,
+
+            replyHasDocument:
+                !!message.reply_to_message?.document
+        })
+    );
+
+    /*
+     * A reply is always handled before normal
+     * @bot messages.
+     */
     if (
-        message.reply_to_message &&
-        isBotMentioned(message)
+        message.reply_to_message
     ) {
+        console.log(
+            "MESSAGE IS A REPLY"
+        );
+
+        console.log(
+            "BOT MENTIONED:",
+            isBotMentioned(message)
+        );
+
+        if (
+            !isBotMentioned(message)
+        ) {
+            return;
+        }
+
         await handlePhotoReply(
             env,
             message
@@ -1707,13 +1831,12 @@ async function handleMessage(
         return;
     }
 
+    /*
+     * Normal @utilitool_bot message.
+     */
     if (
-        message.reply_to_message
+        !isBotMentioned(message)
     ) {
-        return;
-    }
-
-    if (!isBotMentioned(message)) {
         return;
     }
 
