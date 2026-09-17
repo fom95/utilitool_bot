@@ -111,6 +111,29 @@ async function deleteMessage(
     );
 }
 
+async function setMiniAppMenuButton(
+    env
+) {
+    return telegram(
+        env,
+        "setChatMenuButton",
+        {
+            menu_button: {
+                type:
+                    "web_app",
+
+                text:
+                    "Media",
+
+                web_app: {
+                    url:
+                        "https://utilitool-bot.freeoffermail95.workers.dev/miniapp-diagnostic.html"
+                }
+            }
+        }
+    );
+}
+
 function isBotMentioned(message) {
     const text =
         message.text ||
@@ -2239,44 +2262,6 @@ async function handleMessage(
     env,
     message
 ) {
-    console.log(
-        "MESSAGE:",
-        JSON.stringify({
-            messageId:
-                message.message_id,
-
-            chatId:
-                message.chat?.id,
-
-            chatType:
-                message.chat?.type,
-
-            fromId:
-                message.from?.id,
-
-            text:
-                message.text,
-
-            caption:
-                message.caption,
-
-            hasReply:
-                !!message.reply_to_message,
-
-            replyId:
-                message.reply_to_message?.message_id,
-
-            replyHasPhoto:
-                Array.isArray(
-                    message.reply_to_message?.photo
-                ) &&
-                message.reply_to_message.photo.length > 0,
-
-            replyHasDocument:
-                !!message.reply_to_message?.document
-        })
-    );
-
     const chat =
         message.chat;
 
@@ -2292,6 +2277,22 @@ async function handleMessage(
             message.text ||
             ""
         ).trim();
+
+    if (
+        text === "/setminiapp"
+    ) {
+        await setMiniAppMenuButton(
+            env
+        );
+
+        await sendMessage(
+            env,
+            chatId,
+            "Mini App menu button enabled."
+        );
+
+        return;
+    }
 
     /*
      * /start always works in a private DM.
