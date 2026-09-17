@@ -254,17 +254,52 @@ function getCommandReplyPhoto(message) {
     const reply =
         message.reply_to_message;
 
+    if (!reply) {
+        return null;
+    }
+
     if (
-        Array.isArray(reply?.photo) &&
+        Array.isArray(reply.photo) &&
         reply.photo.length
     ) {
-        return reply.photo
-            .slice()
-            .sort(
-                (a, b) =>
-                    (b.file_size || 0) -
-                    (a.file_size || 0)
-            )[0];
+        return reply.photo.slice().sort(
+            (a, b) =>
+                (b.file_size || 0) -
+                (a.file_size || 0)
+        )[0];
+    }
+
+    const document =
+        reply.document;
+
+    if (!document) {
+        return null;
+    }
+
+    const mimeType =
+        String(
+            document.mime_type || ""
+        ).toLowerCase();
+
+    const fileName =
+        String(
+            document.file_name || ""
+        ).toLowerCase();
+
+    const imageExtension =
+        /\.(?:jpg|jpeg|png|webp|gif|bmp|tiff|tif|avif)$/i;
+
+    if (
+        mimeType.startsWith("image/") ||
+        imageExtension.test(fileName)
+    ) {
+        return {
+            file_id:
+                document.file_id,
+
+            file_size:
+                document.file_size || 0
+        };
     }
 
     return null;
@@ -285,9 +320,8 @@ async function handleSetPhotoCommand(
         await sendMessage(
             env,
             message.chat.id,
-            "I received /setphoto, but Telegram did not include the replied-to photo in this update."
+            "I received /setphoto, but the replied-to message does not contain an image."
         );
-
         return;
     }
 
