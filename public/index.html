@@ -888,10 +888,11 @@ async function loadImage() {
                     "X-Telegram-Init-Data":
                         tg.initData
                 },
-                cache: "no-store"
+                cache:
+                    "no-store"
             }
         );
-
+    
     if (!response.ok) {
         throw new Error(
             await response.text()
