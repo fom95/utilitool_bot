@@ -2733,7 +2733,7 @@ async function handleCropImage(
     }
 }
 
-ync function handleLibrary(
+async function handleLibrary(
 
 async function handleLibraryPhoto(
     env,
