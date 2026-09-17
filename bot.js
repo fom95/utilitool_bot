@@ -913,8 +913,18 @@ async function showBaseMenu(
     chatId,
     username,
     userId = null,
-    chatType = "private"
+    chatType = null
 ) {
+    console.trace(
+        "SHOW BASE MENU:",
+        JSON.stringify({
+            chatId,
+            username,
+            userId,
+            chatType
+        })
+    );
+    
     let existing = null;
 
     for (
@@ -943,6 +953,11 @@ async function showBaseMenu(
                 )
         );
     }
+
+    const effectiveChatType =
+        chatType ||
+        existing?.chatType ||
+        "private";
 
     if (
         existing?.messageId
@@ -973,7 +988,7 @@ async function showBaseMenu(
                         chatId,
 
                     type:
-                        chatType
+                        effectiveChatType
                 },
 
                 user: {
@@ -3236,6 +3251,18 @@ function pendingPhotoDeleteKey(chatId) {
     return `delete_new_chat_photo:${String(chatId)}`;
 }
 
+async function getPendingPhotoDeletes(env, chatId) {
+    const value =
+        await CACHE(env).get(
+            pendingPhotoDeleteKey(chatId),
+            "json"
+        );
+
+    return Array.isArray(value)
+        ? value
+        : [];
+}
+
 async function setPendingPhotoDelete(
     env,
     chatId,
@@ -3243,37 +3270,89 @@ async function setPendingPhotoDelete(
     deleteNewChatPhoto = false,
     saveProfilePhoto = true
 ) {
+    const key =
+        pendingPhotoDeleteKey(chatId);
+
+    const pending =
+        await getPendingPhotoDeletes(
+            env,
+            chatId
+        );
+
+    pending.push({
+        id:
+            crypto.randomUUID(),
+
+        chatId,
+
+        userId,
+
+        deleteNewChatPhoto,
+
+        saveProfilePhoto,
+
+        createdAt:
+            Date.now()
+    });
+
     await CACHE(env).put(
-        pendingPhotoDeleteKey(chatId),
-        JSON.stringify({
-            chatId,
-            userId,
-            deleteNewChatPhoto,
-            saveProfilePhoto,
-            createdAt: Date.now()
-        }),
+        key,
+        JSON.stringify(
+            pending.slice(-10)
+        ),
         {
-            expirationTtl: 60
+            expirationTtl:
+                60
         }
     );
-}
 
-async function getPendingPhotoDelete(
-    env,
-    chatId
-) {
-    return CACHE(env).get(
-        pendingPhotoDeleteKey(chatId),
-        "json"
-    );
+    return pending.at(-1);
 }
 
 async function deletePendingPhotoDelete(
     env,
-    chatId
+    chatId,
+    pendingId = null
 ) {
-    await CACHE(env).delete(
-        pendingPhotoDeleteKey(chatId)
+    const key =
+        pendingPhotoDeleteKey(chatId);
+
+    const pending =
+        await getPendingPhotoDeletes(
+            env,
+            chatId
+        );
+
+    if (!pending.length) {
+        return;
+    }
+
+    const remaining =
+        pendingId
+            ? pending.filter(
+                item =>
+                    item.id !==
+                    pendingId
+            )
+            : pending.slice(1);
+
+    if (!remaining.length) {
+        await CACHE(env).delete(
+            key
+        );
+
+        return;
+    }
+
+    await CACHE(env).put(
+        key,
+        JSON.stringify(
+            remaining
+        ),
+        {
+            expirationTtl:
+                60
+        }
     );
 }
 
@@ -4440,11 +4519,16 @@ async function handleNewChatPhoto(
         return false;
     }
 
-    const pending =
-        await getPendingPhotoDelete(
+    const pendingList =
+        await getPendingPhotoDeletes(
             env,
             chatId
         );
+
+    const pending =
+        pendingList.length
+            ? pendingList[0]
+            : null;
 
     try {
         const {
@@ -4482,7 +4566,8 @@ async function handleNewChatPhoto(
 
     await deletePendingPhotoDelete(
         env,
-        chatId
+        chatId,
+        pending.id
     );
 
     if (
