@@ -3361,7 +3361,7 @@ async function handleCropSubmit(
         ) === "1";
 
     const saveProfilePhoto =
-        formData.get(
+        form.get(
             "saveProfilePhoto"
         ) !== "0";
 
@@ -3549,13 +3549,6 @@ async function handleCropSubmit(
         auth.user.first_name ||
         session.firstName ||
         "User";
-
-    /*
-     * The photo change itself succeeded.
-     *
-     * Do not make the Mini App wait for Telegram
-     * menu cleanup/recreation.
-     */
 
     ctx.waitUntil(
         (async () => {
