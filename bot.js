@@ -388,6 +388,107 @@ async function setChatPhoto(env, chatId, blob) {
     return data.result;
 }
 
+function parseStartCommand(message) {
+    const text =
+        String(
+            message?.text ||
+            ""
+        ).trim();
+
+    const match =
+        text.match(
+            /^\/start(?:@\w+)?(?:\s+(.+))?$/i
+        );
+
+    if (!match) {
+        return null;
+    }
+
+    return {
+        parameter:
+            match[1]?.trim() ||
+            null
+    };
+}
+
+async function handleStartCommand(
+    env,
+    message
+) {
+    const start =
+        parseStartCommand(
+            message
+        );
+
+    if (!start) {
+        return false;
+    }
+
+    const chat =
+        message.chat;
+
+    const user =
+        message.from;
+
+    if (!chat?.id) {
+        return true;
+    }
+
+    /*
+     * Normal private /start.
+     */
+    if (
+        chat.type ===
+        "private"
+    ) {
+        await showBaseMenu(
+            env,
+            chat.id,
+            user?.username ||
+                user?.first_name ||
+                "there",
+            user?.id ||
+                null
+        );
+
+        return true;
+    }
+
+    /*
+     * /startgroup=setup causes Telegram
+     * to send /start@utilitool_bot setup
+     * after the bot has been added.
+     */
+    if (
+        start.parameter ===
+        "setup"
+    ) {
+        const chatType =
+            chat.type;
+
+        if (
+            chatType !==
+                "group" &&
+            chatType !==
+                "supergroup"
+        ) {
+            return true;
+        }
+
+        await sendMessage(
+            env,
+            chat.id,
+            "✅ Utilitool is ready.\n\n" +
+            "I can now change this group's profile photo.\n\n" +
+            "Reply to an image with @utilitool_bot to use it as the new profile photo."
+        );
+
+        return true;
+    }
+
+    return true;
+}
+
 function mainMenu(username) {
     return {
         text:
@@ -400,6 +501,22 @@ function mainMenu(username) {
                             "Change Profile Photo",
                         callback_data:
                             "photo"
+                    }
+                ],
+                [
+                    {
+                        text:
+                            "➕ Add to Group",
+                        url:
+                            "https://t.me/utilitool_bot?startgroup=setup&admin=change_info"
+                    }
+                ],
+                [
+                    {
+                        text:
+                            "📢 Add to Channel",
+                        url:
+                            "https://t.me/utilitool_bot?startchannel&admin=change_info"
                     }
                 ],
                 [
@@ -2063,6 +2180,37 @@ async function handleMessage(
     env,
     message
 ) {
+    if (
+        message?.text
+            ?.trim()
+            .match(
+                /^\/start(?:@\w+)?(?:\s+.+)?$/i
+            )
+    ) {
+        const chat =
+            message.chat;
+
+        if (
+            chat?.type ===
+            "private"
+        ) {
+            const username =
+                message.from?.username ||
+                message.from?.first_name ||
+                "there";
+
+            await showBaseMenu(
+                env,
+                chat.id,
+                username,
+                message.from?.id ||
+                    null
+            );
+        }
+
+        return;
+    }
+
     console.log(
         "MESSAGE:",
         JSON.stringify({
