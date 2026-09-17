@@ -158,7 +158,8 @@ function isBotMentioned(message) {
 async function createBaseMenu(
     env,
     chatId,
-    username
+    username,
+    userId = null
 ) {
     const menu =
         mainMenu(
@@ -180,7 +181,8 @@ async function createBaseMenu(
         env,
         chatId,
         message.message_id,
-        username
+        username,
+        userId
     );
 
     return message;
@@ -217,16 +219,9 @@ async function showBaseMenu(
         await createBaseMenu(
             env,
             chatId,
-            username || "there"
+            username,
+            userId
         );
-
-    await saveMenuState(
-        env,
-        chatId,
-        message.message_id,
-        username,
-        userId
-    );
 
     return message.message_id;
 }
@@ -1419,6 +1414,13 @@ async function handleCropSubmit(
                 );
             }
         }
+        
+        await createBaseMenu(
+            env,
+            session.chatId,
+            displayName,
+            auth.user.id
+        );
         
         const menu =
             mainMenu(
