@@ -243,6 +243,13 @@ if (!tg) {
 tg.ready();
 tg.expand();
 
+if (
+    typeof tg.disableVerticalSwipes ===
+    "function"
+) {
+    tg.disableVerticalSwipes();
+}
+
 const params =
     new URLSearchParams(
         location.search
