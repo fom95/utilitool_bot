@@ -6,7 +6,7 @@
     name="viewport"
     content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"
 >
-<title>Crop Profile Photo</title>
+<title>Profile Photo</title>
 
 <script src="https://telegram.org/js/telegram-web-app.js"></script>
 
@@ -42,6 +42,23 @@ body {
 
     overscroll-behavior: none;
     touch-action: none;
+}
+
+.hidden {
+    display: none !important;
+}
+
+/* =========================
+   CROP
+   ========================= */
+
+#cropView {
+    width: 100%;
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
 #title {
@@ -103,39 +120,7 @@ body {
     opacity: .7;
 }
 
-#deleteOption {
-    width: 100%;
-
-    padding:
-        2px
-        16px
-        6px;
-
-    display: flex;
-
-    align-items: center;
-    justify-content: center;
-
-    gap: 8px;
-
-    font-size: 14px;
-
-    opacity: .85;
-}
-
-#deleteOption input {
-    width: 18px;
-    height: 18px;
-
-    margin: 0;
-
-    accent-color:
-        var(
-            --tg-theme-button-color,
-            #2481cc
-        );
-}
-
+#deleteOption,
 #saveOption {
     width: 100%;
 
@@ -156,6 +141,7 @@ body {
     opacity: .85;
 }
 
+#deleteOption input,
 #saveOption input {
     width: 18px;
     height: 18px;
@@ -169,15 +155,12 @@ body {
         );
 }
 
+#deleteOption label,
 #saveOption label {
     cursor: pointer;
 }
 
-#deleteOption label {
-    cursor: pointer;
-}
-
-#buttons {
+#cropButtons {
     width: 100%;
 
     display: flex;
@@ -235,6 +218,10 @@ button:disabled {
     opacity: .5;
 }
 
+/* =========================
+   LOADING
+   ========================= */
+
 #loading {
     position: fixed;
 
@@ -254,6 +241,15 @@ button:disabled {
     z-index: 10;
 }
 
+#loadingContent {
+    width: min(
+        80vw,
+        360px
+    );
+
+    text-align: center;
+}
+
 #loading.hidden {
     display: none;
 }
@@ -264,14 +260,6 @@ button:disabled {
     text-align: center;
 
     font-size: 16px;
-}
-    #loadingContent {
-    width: min(
-        80vw,
-        360px
-    );
-
-    text-align: center;
 }
 
 #progressContainer {
@@ -316,15 +304,418 @@ button:disabled {
 
     opacity: .65;
 }
+
+/* =========================
+   LIBRARY
+   ========================= */
+
+#libraryView {
+    width: 100%;
+    height: 100%;
+
+    display: flex;
+    flex-direction: column;
+
+    overflow: hidden;
+}
+
+#libraryHeader {
+    width: 100%;
+
+    padding:
+        12px
+        16px
+        8px;
+
+    font-size: 18px;
+    font-weight: 600;
+}
+
+#libraryFilter {
+    width: calc(
+        100% - 32px
+    );
+
+    margin:
+        0
+        16px
+        10px;
+
+    min-height: 44px;
+
+    padding:
+        0
+        12px;
+
+    border: 0;
+    border-radius: 10px;
+
+    background:
+        var(
+            --tg-theme-secondary-bg-color,
+            #eeeeee
+        );
+
+    color:
+        var(
+            --tg-theme-text-color,
+            #000000
+        );
+
+    font-size: 15px;
+}
+
+#libraryStatus {
+    width: 100%;
+
+    padding:
+        4px
+        16px
+        10px;
+
+    text-align: center;
+
+    font-size: 13px;
+
+    opacity: .65;
+}
+
+#libraryGrid {
+    flex: 1;
+
+    width: 100%;
+
+    overflow-y: auto;
+    overflow-x: hidden;
+
+    padding:
+        4px
+        10px
+        calc(
+            10px +
+            env(safe-area-inset-bottom)
+        );
+
+    display: grid;
+
+    grid-template-columns:
+        repeat(
+            3,
+            minmax(0, 1fr)
+        );
+
+    gap: 8px;
+
+    align-content: start;
+
+    touch-action: pan-y;
+}
+
+.libraryItem {
+    position: relative;
+
+    aspect-ratio: 1;
+
+    overflow: hidden;
+
+    border-radius: 10px;
+
+    background:
+        var(
+            --tg-theme-secondary-bg-color,
+            #eeeeee
+        );
+}
+
+.libraryItem img {
+    display: block;
+
+    width: 100%;
+    height: 100%;
+
+    object-fit: cover;
+}
+
+.libraryItem:active {
+    opacity: .7;
+}
+
+.libraryDelete {
+    position: absolute;
+
+    top: 5px;
+    right: 5px;
+
+    width: 30px;
+    min-height: 30px;
+
+    padding: 0;
+
+    border-radius: 50%;
+
+    background:
+        rgba(
+            0,
+            0,
+            0,
+            .65
+        );
+
+    color: #fff;
+
+    font-size: 16px;
+
+    z-index: 2;
+}
+
+#libraryEmpty {
+    grid-column:
+        1 / -1;
+
+    padding:
+        40px
+        20px;
+
+    text-align: center;
+
+    font-size: 15px;
+
+    opacity: .65;
+}
+
+/* =========================
+   LIBRARY PREVIEW
+   ========================= */
+
+#libraryPreview {
+    position: fixed;
+
+    inset: 0;
+
+    display: flex;
+
+    flex-direction: column;
+
+    align-items: center;
+    justify-content: center;
+
+    padding:
+        20px;
+
+    background:
+        rgba(
+            0,
+            0,
+            0,
+            .9
+        );
+
+    z-index: 20;
+
+    touch-action: none;
+}
+
+#libraryPreviewImage {
+    display: block;
+
+    width: min(
+        90vw,
+        600px
+    );
+
+    height: min(
+        70vh,
+        600px
+    );
+
+    object-fit: contain;
+
+    border-radius: 8px;
+}
+
+#libraryPreviewInfo {
+    width: min(
+        90vw,
+        600px
+    );
+
+    margin-top: 12px;
+
+    text-align: center;
+
+    color: #fff;
+
+    font-size: 14px;
+}
+
+#libraryPreviewButtons {
+    width: min(
+        90vw,
+        600px
+    );
+
+    display: flex;
+
+    gap: 10px;
+
+    margin-top: 14px;
+}
+
+#libraryPreviewButtons button {
+    min-height: 46px;
+}
+
+#libraryApply {
+    background:
+        var(
+            --tg-theme-button-color,
+            #2481cc
+        );
+
+    color:
+        var(
+            --tg-theme-button-text-color,
+            #ffffff
+        );
+}
+
+#libraryClose {
+    background:
+        var(
+            --tg-theme-secondary-bg-color,
+            #eeeeee
+        );
+
+    color:
+        var(
+            --tg-theme-text-color,
+            #000000
+        );
+}
 </style>
 </head>
 
 <body>
 
+<!-- =========================
+     CROP VIEW
+     ========================= -->
+
+<div id="cropView" class="hidden">
+
+    <div id="title">
+        Position Profile Photo
+    </div>
+
+    <div id="cropArea">
+        <canvas id="canvas"></canvas>
+    </div>
+
+    <div id="hint">
+        Drag to position · Pinch or scroll to zoom
+    </div>
+
+    <div id="deleteOption">
+        <input
+            type="checkbox"
+            id="deleteNewChatPhoto"
+            checked
+        >
+
+        <label for="deleteNewChatPhoto">
+            Delete the generated profile-photo message
+        </label>
+    </div>
+
+    <div id="saveOption">
+        <input
+            type="checkbox"
+            id="saveProfilePhoto"
+            checked
+        >
+
+        <label for="saveProfilePhoto">
+            Save profile photo to library
+        </label>
+    </div>
+
+    <div id="cropButtons">
+        <button id="cancel">
+            Cancel
+        </button>
+
+        <button id="apply">
+            Apply
+        </button>
+    </div>
+
+</div>
+
+<!-- =========================
+     LIBRARY VIEW
+     ========================= -->
+
+<div id="libraryView" class="hidden">
+
+    <div id="libraryHeader">
+        Profile Photo Library
+    </div>
+
+    <select id="libraryFilter">
+        <option value="current">
+            Current Chat
+        </option>
+
+        <option value="all">
+            All Chats
+        </option>
+    </select>
+
+    <div id="libraryStatus">
+        Loading library…
+    </div>
+
+    <div id="libraryGrid"></div>
+
+</div>
+
+<!-- =========================
+     LIBRARY PREVIEW
+     ========================= -->
+
+<div id="libraryPreview" class="hidden">
+
+    <img
+        id="libraryPreviewImage"
+        alt=""
+    >
+
+    <div id="libraryPreviewInfo"></div>
+
+    <div id="libraryPreviewButtons">
+
+        <button id="libraryClose">
+            Close
+        </button>
+
+        <button id="libraryApply">
+            Apply
+        </button>
+
+    </div>
+
+</div>
+
+<!-- =========================
+     LOADING
+     ========================= -->
+
 <div id="loading">
+
     <div id="loadingContent">
+
         <div id="status">
-            Loading image…
+            Loading…
         </div>
 
         <div id="progressContainer">
@@ -334,53 +725,9 @@ button:disabled {
         <div id="progressText">
             0%
         </div>
+
     </div>
-</div>
 
-<div id="title">
-    Position Profile Photo
-</div>
-
-<div id="cropArea">
-    <canvas id="canvas"></canvas>
-</div>
-
-<div id="hint">
-    Drag to position · Pinch or scroll to zoom
-</div>
-
-<div id="deleteOption">
-    <input
-        type="checkbox"
-        id="deleteNewChatPhoto"
-        checked
-    >
-
-    <label for="deleteNewChatPhoto">
-        Delete the generated profile-photo message
-    </label>
-</div>
-
-<div id="saveOption">
-    <input
-        type="checkbox"
-        id="saveProfilePhoto"
-        checked
-    >
-
-    <label for="saveProfilePhoto">
-        Save profile photo to library
-    </label>
-</div>
-
-<div id="buttons">
-    <button id="cancel">
-        Cancel
-    </button>
-
-    <button id="apply">
-        Apply
-    </button>
 </div>
 
 <script>
@@ -389,9 +736,7 @@ const tg =
     window.Telegram.WebApp;
 
 if (!tg) {
-    document.getElementById(
-        "status"
-    ).textContent =
+    document.body.textContent =
         "This page must be opened inside Telegram.";
 
     throw new Error(
@@ -414,11 +759,624 @@ const params =
         location.search
     );
 
-const session =
-    params.get("session") ||
-    params.get("tgWebAppStartParam") ||
+const startParam =
+    params.get(
+        "tgWebAppStartParam"
+    ) ||
+    params.get(
+        "startapp"
+    ) ||
     tg.initDataUnsafe?.start_param ||
     "";
+
+const libraryMode =
+    /^library_-?\d+$/.test(
+        startParam
+    );
+
+const session =
+    libraryMode
+        ? ""
+        : (
+            params.get("session") ||
+            startParam
+        );
+
+/* =========================
+   SHARED
+   ========================= */
+
+const loading =
+    document.getElementById(
+        "loading"
+    );
+
+const status =
+    document.getElementById(
+        "status"
+    );
+
+function setStatus(text) {
+    status.textContent =
+        text;
+}
+
+function hideLoading() {
+    loading.classList.add(
+        "hidden"
+    );
+}
+
+function showLoading(text) {
+    setStatus(text);
+
+    loading.classList.remove(
+        "hidden"
+    );
+}
+
+/* =========================
+   LIBRARY
+   ========================= */
+
+const libraryView =
+    document.getElementById(
+        "libraryView"
+    );
+
+const libraryFilter =
+    document.getElementById(
+        "libraryFilter"
+    );
+
+const libraryStatus =
+    document.getElementById(
+        "libraryStatus"
+    );
+
+const libraryGrid =
+    document.getElementById(
+        "libraryGrid"
+    );
+
+const libraryPreview =
+    document.getElementById(
+        "libraryPreview"
+    );
+
+const libraryPreviewImage =
+    document.getElementById(
+        "libraryPreviewImage"
+    );
+
+const libraryPreviewInfo =
+    document.getElementById(
+        "libraryPreviewInfo"
+    );
+
+const libraryApply =
+    document.getElementById(
+        "libraryApply"
+    );
+
+const libraryClose =
+    document.getElementById(
+        "libraryClose"
+    );
+
+let libraryData =
+    null;
+
+let selectedLibraryPhoto =
+    null;
+
+function libraryPhotoUrl(photo) {
+    return (
+        "/api/library/photo?id=" +
+        encodeURIComponent(
+            photo.id
+        ) +
+        "&_=" +
+        Date.now()
+    );
+}
+
+function renderLibraryFilter() {
+    if (!libraryData) {
+        return;
+    }
+
+    const currentChat =
+        libraryData.currentChat;
+
+    libraryFilter.innerHTML =
+        "";
+
+    const currentOption =
+        document.createElement(
+            "option"
+        );
+
+    currentOption.value =
+        "current";
+
+    currentOption.textContent =
+        currentChat.title ||
+        "Current Chat";
+
+    libraryFilter.appendChild(
+        currentOption
+    );
+
+    const allOption =
+        document.createElement(
+            "option"
+        );
+
+    allOption.value =
+        "all";
+
+    allOption.textContent =
+        "All Chats";
+
+    libraryFilter.appendChild(
+        allOption
+    );
+
+    const chats =
+        Array.isArray(
+            libraryData.chats
+        )
+            ? libraryData.chats
+            : [];
+
+    for (
+        const chat of chats
+    ) {
+        if (
+            String(chat.id) ===
+            String(currentChat.id)
+        ) {
+            continue;
+        }
+
+        const option =
+            document.createElement(
+                "option"
+            );
+
+        option.value =
+            String(chat.id);
+
+        option.textContent =
+            chat.title ||
+            chat.username ||
+            String(chat.id);
+
+        libraryFilter.appendChild(
+            option
+        );
+    }
+}
+
+function getFilteredLibrary() {
+    if (!libraryData) {
+        return [];
+    }
+
+    const photos =
+        Array.isArray(
+            libraryData.photos
+        )
+            ? libraryData.photos
+            : [];
+
+    const filter =
+        libraryFilter.value;
+
+    if (
+        filter === "all"
+    ) {
+        return photos;
+    }
+
+    const currentChatId =
+        filter === "current"
+            ? libraryData.currentChat.id
+            : filter;
+
+    return photos.filter(
+        photo =>
+            String(
+                photo.sourceChatId
+            ) ===
+            String(
+                currentChatId
+            )
+    );
+}
+
+function renderLibrary() {
+    const photos =
+        getFilteredLibrary();
+
+    libraryGrid.innerHTML =
+        "";
+
+    libraryStatus.textContent =
+        `${photos.length} photo${
+            photos.length === 1
+                ? ""
+                : "s"
+        }`;
+
+    if (!photos.length) {
+        const empty =
+            document.createElement(
+                "div"
+            );
+
+        empty.id =
+            "libraryEmpty";
+
+        empty.textContent =
+            "No saved profile photos here.";
+
+        libraryGrid.appendChild(
+            empty
+        );
+
+        return;
+    }
+
+    for (
+        const photo of photos
+    ) {
+        const item =
+            document.createElement(
+                "div"
+            );
+
+        item.className =
+            "libraryItem";
+
+        const image =
+            document.createElement(
+                "img"
+            );
+
+        image.loading =
+            "lazy";
+
+        image.alt =
+            "Profile photo";
+
+        image.src =
+            libraryPhotoUrl(
+                photo
+            );
+
+        const deleteButton =
+            document.createElement(
+                "button"
+            );
+
+        deleteButton.className =
+            "libraryDelete";
+
+        deleteButton.textContent =
+            "×";
+
+        deleteButton.title =
+            "Delete";
+
+        deleteButton.addEventListener(
+            "click",
+            event => {
+                event.stopPropagation();
+
+                deleteLibraryPhoto(
+                    photo
+                );
+            }
+        );
+
+        item.appendChild(
+            image
+        );
+
+        item.appendChild(
+            deleteButton
+        );
+
+        item.addEventListener(
+            "click",
+            () => {
+                openLibraryPhoto(
+                    photo
+                );
+            }
+        );
+
+        libraryGrid.appendChild(
+            item
+        );
+    }
+}
+
+function openLibraryPhoto(
+    photo
+) {
+    selectedLibraryPhoto =
+        photo;
+
+    libraryPreviewImage.src =
+        libraryPhotoUrl(
+            photo
+        );
+
+    libraryPreviewInfo.textContent =
+        photo.sourceChatTitle
+            ? `From ${photo.sourceChatTitle}`
+            : "Saved profile photo";
+
+    libraryPreview.classList.remove(
+        "hidden"
+    );
+}
+
+function closeLibraryPreview() {
+    selectedLibraryPhoto =
+        null;
+
+    libraryPreview.classList.add(
+        "hidden"
+    );
+
+    libraryPreviewImage.removeAttribute(
+        "src"
+    );
+}
+
+async function deleteLibraryPhoto(
+    photo
+) {
+    if (
+        !confirm(
+            "Delete this saved profile photo?"
+        )
+    ) {
+        return;
+    }
+
+    try {
+        const response =
+            await fetch(
+                "/api/library/delete",
+                {
+                    method: "POST",
+
+                    headers: {
+                        "Content-Type":
+                            "application/json",
+
+                        "X-Telegram-Init-Data":
+                            tg.initData
+                    },
+
+                    body:
+                        JSON.stringify({
+                            id:
+                                photo.id
+                        })
+                }
+            );
+
+        const result =
+            await response.json()
+                .catch(
+                    () => ({})
+                );
+
+        if (
+            !response.ok ||
+            !result.success
+        ) {
+            throw new Error(
+                result.error ||
+                "Unable to delete photo."
+            );
+        }
+
+        libraryData.photos =
+            libraryData.photos.filter(
+                item =>
+                    String(item.id) !==
+                    String(photo.id)
+            );
+
+        if (
+            selectedLibraryPhoto &&
+            String(
+                selectedLibraryPhoto.id
+            ) ===
+            String(photo.id)
+        ) {
+            closeLibraryPreview();
+        }
+
+        renderLibrary();
+    } catch (error) {
+        console.error(
+            error
+        );
+
+        tg.showAlert(
+            error.message ||
+            "Unable to delete photo."
+        );
+    }
+}
+
+libraryFilter.addEventListener(
+    "change",
+    renderLibrary
+);
+
+libraryClose.addEventListener(
+    "click",
+    closeLibraryPreview
+);
+
+libraryApply.addEventListener(
+    "click",
+    async () => {
+        if (
+            !selectedLibraryPhoto
+        ) {
+            return;
+        }
+
+        libraryApply.disabled =
+            true;
+
+        showLoading(
+            "Changing profile photo…"
+        );
+
+        try {
+            const response =
+                await fetch(
+                    "/api/library/apply",
+                    {
+                        method: "POST",
+
+                        headers: {
+                            "Content-Type":
+                                "application/json",
+
+                            "X-Telegram-Init-Data":
+                                tg.initData
+                        },
+
+                        body:
+                            JSON.stringify({
+                                id:
+                                    selectedLibraryPhoto.id,
+
+                                deleteNewChatPhoto:
+                                    "1"
+                            })
+                    }
+                );
+
+            const result =
+                await response.json()
+                    .catch(
+                        () => ({})
+                    );
+
+            if (
+                !response.ok ||
+                !result.success
+            ) {
+                throw new Error(
+                    result.error ||
+                    "Unable to change profile photo."
+                );
+            }
+
+            setStatus(
+                "Profile photo changed."
+            );
+
+            setTimeout(
+                () => tg.close(),
+                500
+            );
+        } catch (error) {
+            console.error(
+                error
+            );
+
+            hideLoading();
+
+            libraryApply.disabled =
+                false;
+
+            tg.showAlert(
+                error.message ||
+                "Unable to change profile photo."
+            );
+        }
+    }
+);
+
+async function loadLibrary() {
+    libraryView.classList.remove(
+        "hidden"
+    );
+
+    showLoading(
+        "Loading library…"
+    );
+
+    try {
+        const response =
+            await fetch(
+                "/api/library",
+                {
+                    headers: {
+                        "X-Telegram-Init-Data":
+                            tg.initData
+                    }
+                }
+            );
+
+        const result =
+            await response.json()
+                .catch(
+                    () => ({})
+                );
+
+        if (
+            !response.ok ||
+            !result.success
+        ) {
+            throw new Error(
+                result.error ||
+                "Unable to load library."
+            );
+        }
+
+        libraryData =
+            result;
+
+        renderLibraryFilter();
+
+        renderLibrary();
+
+        hideLoading();
+    } catch (error) {
+        console.error(
+            error
+        );
+
+        setStatus(
+            error.message ||
+            "Unable to load library."
+        );
+    }
+}
+
+/* =========================
+   CROP
+   ========================= */
+
+const cropView =
+    document.getElementById(
+        "cropView"
+    );
 
 const cropArea =
     document.getElementById(
@@ -436,16 +1394,6 @@ const ctx =
         {
             alpha: false
         }
-    );
-
-const loading =
-    document.getElementById(
-        "loading"
-    );
-
-const status =
-    document.getElementById(
-        "status"
     );
 
 const progressBar =
@@ -482,15 +1430,6 @@ const cancelButton =
     document.getElementById(
         "cancel"
     );
-
-if (!session) {
-    status.textContent =
-        "The crop session is missing.";
-
-    throw new Error(
-        "Missing session."
-    );
-}
 
 let image =
     new Image();
@@ -539,11 +1478,6 @@ let pinchCenterY =
 
 let pointers =
     new Map();
-
-function setStatus(text) {
-    status.textContent =
-        text;
-}
 
 function setProgress(
     loaded,
@@ -621,12 +1555,6 @@ function resizeCanvas() {
 }
 
 function calculateMinimumScale() {
-    const largestDimension =
-        Math.max(
-            imageWidth,
-            imageHeight
-        );
-
     minScale =
         Math.max(
             canvas.width /
@@ -820,13 +1748,17 @@ function pointerPosition(event) {
 
     return {
         x:
-            (event.clientX -
-                rect.left) *
+            (
+                event.clientX -
+                rect.left
+            ) *
             factorX,
 
         y:
-            (event.clientY -
-                rect.top) *
+            (
+                event.clientY -
+                rect.top
+            ) *
             factorY
     };
 }
@@ -1284,9 +2216,7 @@ async function loadImage() {
 
     hideLoadingProgress();
 
-    loading.classList.add(
-        "hidden"
-    );
+    hideLoading();
 }
 
 window.addEventListener(
@@ -1475,12 +2405,12 @@ applyButton.addEventListener(
                 "session",
                 session
             );
-            
+
             form.append(
                 "initData",
                 tg.initData
             );
-            
+
             form.append(
                 "deleteNewChatPhoto",
                 deleteNewChatPhoto.checked
@@ -1494,7 +2424,7 @@ applyButton.addEventListener(
                     ? "1"
                     : "0"
             );
-            
+
             form.append(
                 "photo",
                 blob,
@@ -1553,17 +2483,39 @@ applyButton.addEventListener(
     }
 );
 
-loadImage()
-    .catch(error => {
-        console.error(
-            error
+/* =========================
+   START
+   ========================= */
+
+if (libraryMode) {
+    loadLibrary();
+} else {
+    if (!session) {
+        setStatus(
+            "The crop session is missing."
         );
 
-        setStatus(
-            error.message ||
-            "Unable to load image."
+        throw new Error(
+            "Missing session."
         );
-    });
+    }
+
+    cropView.classList.remove(
+        "hidden"
+    );
+
+    loadImage()
+        .catch(error => {
+            console.error(
+                error
+            );
+
+            setStatus(
+                error.message ||
+                "Unable to load image."
+            );
+        });
+}
 </script>
 
 </body>
