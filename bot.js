@@ -159,13 +159,13 @@ async function createBaseMenu(
     env,
     chatId,
     username,
-    userId = null
+    userId = null,
+    chatType = "private"
 ) {
     const menu =
         mainMenu(
-            username,
-            chat?.type ||
-                "private"
+            username || "there",
+            chatType
         );
 
     const message =
@@ -195,6 +195,8 @@ async function createBaseMenu(
 
         lastUsername:
             username || null,
+
+        chatType,
 
         mode:
             "base"
@@ -520,14 +522,6 @@ function mainMenu(
                                     "📢 Add to Channel",
                                 url:
                                     "https://t.me/utilitool_bot?startchannel&admin=change_info+post_messages+edit_messages+delete_messages"
-                            }
-                        ],
-                        [
-                            {
-                                text:
-                                    "Bye",
-                                callback_data:
-                                    "bye"
                             }
                         ]
                     ]
@@ -1965,7 +1959,9 @@ async function handleCallback(
             messageId,
             mainMenu(
                 username ||
-                "there"
+                "there",
+                existingState?.chatType ||
+                    "private"
             )
         );
 
@@ -2009,7 +2005,9 @@ async function handleCallback(
             messageId,
             mainMenu(
                 sessionUsername ||
-                "there"
+                "there",
+                existingState?.chatType ||
+                    "private"
             )
         );
 
@@ -2097,7 +2095,9 @@ async function handleCallback(
             messageId,
             mainMenu(
                 username ||
-                "there"
+                "there",
+                existingState?.chatType ||
+                    "private"
             )
         );
 
@@ -2193,7 +2193,9 @@ async function handleMyChatMember(
     await createBaseMenu(
         env,
         chat.id,
-        username
+        username,
+        null,
+        chat.type
     );
 }
 
@@ -2201,37 +2203,6 @@ async function handleMessage(
     env,
     message
 ) {
-    if (
-        message?.text
-            ?.trim()
-            .match(
-                /^\/start(?:@\w+)?(?:\s+.+)?$/i
-            )
-    ) {
-        const chat =
-            message.chat;
-
-        if (
-            chat?.type ===
-            "private"
-        ) {
-            const username =
-                message.from?.username ||
-                message.from?.first_name ||
-                "there";
-
-            await showBaseMenu(
-                env,
-                chat.id,
-                username,
-                message.from?.id ||
-                    null
-            );
-        }
-
-        return;
-    }
-
     console.log(
         "MESSAGE:",
         JSON.stringify({
@@ -2240,6 +2211,9 @@ async function handleMessage(
 
             chatId:
                 message.chat?.id,
+
+            chatType:
+                message.chat?.type,
 
             fromId:
                 message.from?.id,
@@ -2266,6 +2240,50 @@ async function handleMessage(
                 !!message.reply_to_message?.document
         })
     );
+
+    const chat =
+        message.chat;
+
+    const chatId =
+        chat?.id;
+
+    if (!chatId) {
+        return;
+    }
+
+    const text =
+        String(
+            message.text ||
+            ""
+        ).trim();
+
+    /*
+     * /start is handled automatically in
+     * private chats, without requiring a
+     * bot mention.
+     */
+    if (
+        chat.type ===
+            "private" &&
+        /^\/start(?:@\w+)?(?:\s+.+)?$/i.test(
+            text
+        )
+    ) {
+        const username =
+            message.from?.username ||
+            message.from?.first_name ||
+            "there";
+
+        await showBaseMenu(
+            env,
+            chatId,
+            username,
+            message.from?.id ||
+                null
+        );
+
+        return;
+    }
 
     if (
         message.reply_to_message
@@ -2299,13 +2317,6 @@ async function handleMessage(
         return;
     }
 
-    const chatId =
-        message.chat?.id;
-
-    if (!chatId) {
-        return;
-    }
-
     try {
         await deleteMessage(
             env,
@@ -2327,7 +2338,8 @@ async function handleMessage(
         env,
         chatId,
         username,
-        message.from?.id || null
+        message.from?.id ||
+            null
     );
 }
 
