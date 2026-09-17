@@ -103,6 +103,43 @@ body {
     opacity: .7;
 }
 
+#deleteOption {
+    width: 100%;
+
+    padding:
+        2px
+        16px
+        6px;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    gap: 8px;
+
+    font-size: 14px;
+
+    opacity: .85;
+}
+
+#deleteOption input {
+    width: 18px;
+    height: 18px;
+
+    margin: 0;
+
+    accent-color:
+        var(
+            --tg-theme-button-color,
+            #2481cc
+        );
+}
+
+#deleteOption label {
+    cursor: pointer;
+}
+
 #buttons {
     width: 100%;
 
@@ -275,6 +312,18 @@ button:disabled {
     Drag to position · Pinch or scroll to zoom
 </div>
 
+<div id="deleteOption">
+    <input
+        type="checkbox"
+        id="deleteNewChatPhoto"
+        checked
+    >
+
+    <label for="deleteNewChatPhoto">
+        Delete the generated profile-photo message
+    </label>
+</div>
+
 <div id="buttons">
     <button id="cancel">
         Cancel
@@ -363,6 +412,11 @@ const progressContainer =
 const progressText =
     document.getElementById(
         "progressText"
+    );
+
+const deleteNewChatPhoto =
+    document.getElementById(
+        "deleteNewChatPhoto"
     );
 
 const applyButton =
@@ -1367,12 +1421,19 @@ applyButton.addEventListener(
                 "session",
                 session
             );
-
+            
             form.append(
                 "initData",
                 tg.initData
             );
-
+            
+            form.append(
+                "deleteNewChatPhoto",
+                deleteNewChatPhoto.checked
+                    ? "1"
+                    : "0"
+            );
+            
             form.append(
                 "photo",
                 blob,
