@@ -93,10 +93,6 @@ async function answerCallback(env, callbackId) {
     } catch {}
 }
 
-async function getBot(env) {
-    return telegram(env, "getMe");
-}
-
 async function getFile(env, fileId) {
     return telegram(env, "getFile", {
         file_id: fileId
@@ -255,24 +251,24 @@ function isSetPhotoCommand(message) {
 }
 
 function getCommandReplyPhoto(message) {
-    const reply =
-        message.reply_to_message;
+    const candidates = [
+        message.reply_to_message,
+        message.external_reply
+    ];
 
-    if (!reply) {
-        return null;
-    }
-
-    if (
-        Array.isArray(reply.photo) &&
-        reply.photo.length
-    ) {
-        return reply.photo
-            .slice()
-            .sort(
-                (a, b) =>
-                    (b.file_size || 0) -
-                    (a.file_size || 0)
-            )[0];
+    for (const reply of candidates) {
+        if (
+            Array.isArray(reply?.photo) &&
+            reply.photo.length
+        ) {
+            return reply.photo
+                .slice()
+                .sort(
+                    (a, b) =>
+                        (b.file_size || 0) -
+                        (a.file_size || 0)
+                )[0];
+        }
     }
 
     return null;
@@ -280,22 +276,6 @@ function getCommandReplyPhoto(message) {
 
 function getUserFromMessage(message) {
     return message.from || null;
-}
-
-function usernameForUser(user) {
-    if (!user) {
-        return "User";
-    }
-
-    if (user.username) {
-        return user.username;
-    }
-
-    return (
-        user.first_name ||
-        user.title ||
-        "User"
-    );
 }
 
 async function handleSetPhotoCommand(
@@ -309,7 +289,7 @@ async function handleSetPhotoCommand(
         await sendMessage(
             env,
             message.chat.id,
-            "Reply to a photo with /setphoto."
+            "I couldn't find a photo in the message you replied to."
         );
 
         return;
@@ -353,7 +333,6 @@ async function handleSetPhotoCommand(
 
             firstName:
                 user?.first_name ||
-                user?.title ||
                 null
         }
     );
@@ -370,13 +349,16 @@ async function handleSetPhotoCommand(
                 inline_keyboard: [
                     [
                         {
-                            text: "Open Photo Cropper",
-                            url: cropUrl
+                            text:
+                                "Open Photo Cropper",
+                            url:
+                                cropUrl
                         }
                     ],
                     [
                         {
-                            text: "Cancel",
+                            text:
+                                "Cancel",
                             callback_data:
                                 `cancel_photo:${sessionId}`
                         }
@@ -428,12 +410,13 @@ async function validateTelegramInitData(
     const encoder =
         new TextEncoder();
 
+    const token =
+        await BOT_TOKEN(env);
+    
     const keyMaterial =
         await crypto.subtle.importKey(
             "raw",
-            encoder.encode(
-                BOT_TOKEN(env)
-            ),
+            encoder.encode(token),
             {
                 name: "HMAC",
                 hash: "SHA-256"
@@ -1088,21 +1071,18 @@ async function handleMyChatMember(
 
 async function handleMessage(
     env,
-    message,
-    origin
+    message
 ) {
     if (
-        isSetPhotoCommand(message)
+        !isSetPhotoCommand(message)
     ) {
-        await handleSetPhotoCommand(
-            env,
-            message,
-            "",
-            origin
-        );
-
         return;
     }
+
+    await handleSetPhotoCommand(
+        env,
+        message
+    );
 }
 
 async function handleUpdate(
