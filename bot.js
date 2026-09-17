@@ -1423,15 +1423,22 @@ async function handleCropSubmit(
             }
         }
 
+        const menu =
+            mainMenu(
+                displayName
+            );
+        
         const newMenu =
             await sendMessage(
                 env,
                 session.chatId,
-                mainMenu(
-                    displayName
-                )
+                menu.text,
+                {
+                    reply_markup:
+                        menu.reply_markup
+                }
             );
-
+        
         const newMessageId =
             newMenu?.message_id ||
             null;
