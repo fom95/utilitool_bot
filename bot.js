@@ -207,7 +207,7 @@ async function showBaseMenu(
             );
         } catch (error) {
             console.error(
-                "Unable to delete existing menu:",
+                "Unable to delete previous menu:",
                 error
             );
         }
@@ -1396,13 +1396,13 @@ async function handleCropSubmit(
             auth.user.username ||
             session.username ||
             null;
-
+        
         const displayName =
             username ||
             auth.user.first_name ||
             session.firstName ||
             "User";
-
+        
         if (
             session.menuMessageId
         ) {
@@ -1419,7 +1419,7 @@ async function handleCropSubmit(
                 );
             }
         }
-
+        
         const menu =
             mainMenu(
                 displayName
@@ -1439,7 +1439,7 @@ async function handleCropSubmit(
         const newMessageId =
             newMenu?.message_id ||
             null;
-
+        
         await CACHE(env).put(
             menuStateKey(
                 session.chatId
@@ -1447,21 +1447,21 @@ async function handleCropSubmit(
             JSON.stringify({
                 chatId:
                     session.chatId,
-
+        
                 messageId:
                     newMessageId,
-
+        
                 username:
                     username,
-
+        
                 lastUserId:
                     Number(
                         auth.user.id
                     ),
-
+        
                 lastUsername:
                     username,
-
+        
                 mode:
                     "base"
             })
