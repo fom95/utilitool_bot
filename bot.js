@@ -417,10 +417,22 @@ async function validateTelegramInitData(
         );
     }
 
+    /*
+     * Telegram Web App validation:
+     *
+     * secretKey =
+     *     HMAC-SHA256(
+     *         key: "WebAppData",
+     *         message: bot token
+     *     )
+     */
+
     const secretKeyMaterial =
         await crypto.subtle.importKey(
             "raw",
-            encoder.encode(token),
+            encoder.encode(
+                "WebAppData"
+            ),
             {
                 name: "HMAC",
                 hash: "SHA-256"
@@ -434,9 +446,17 @@ async function validateTelegramInitData(
             "HMAC",
             secretKeyMaterial,
             encoder.encode(
-                "WebAppData"
+                token
             )
         );
+
+    /*
+     * calculatedHash =
+     *     HMAC-SHA256(
+     *         key: secretKey,
+     *         message: dataCheckString
+     *     )
+     */
 
     const validationKey =
         await crypto.subtle.importKey(
@@ -469,7 +489,10 @@ async function validateTelegramInitData(
                 byte =>
                     byte
                         .toString(16)
-                        .padStart(2, "0")
+                        .padStart(
+                            2,
+                            "0"
+                        )
             )
             .join("");
 
