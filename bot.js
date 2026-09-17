@@ -2470,6 +2470,52 @@ async function handleCropImage(
 
 
 // ============================================================
+// KV HELPERS
+// ============================================================
+
+function pendingPhotoDeleteKey(chatId) {
+    return `delete_new_chat_photo:${String(chatId)}`;
+}
+
+async function setPendingPhotoDelete(
+    env,
+    chatId,
+    userId
+) {
+    await CACHE(env).put(
+        pendingPhotoDeleteKey(chatId),
+        JSON.stringify({
+            chatId,
+            userId,
+            createdAt: Date.now()
+        }),
+        {
+            expirationTtl: 60
+        }
+    );
+}
+
+async function getPendingPhotoDelete(
+    env,
+    chatId
+) {
+    return CACHE(env).get(
+        pendingPhotoDeleteKey(chatId),
+        "json"
+    );
+}
+
+async function deletePendingPhotoDelete(
+    env,
+    chatId
+) {
+    await CACHE(env).delete(
+        pendingPhotoDeleteKey(chatId)
+    );
+}
+
+
+// ============================================================
 // CROP SUBMIT ENDPOINT
 // ============================================================
 
@@ -2508,6 +2554,11 @@ async function handleCropSubmit(
             ) ||
             ""
         );
+
+    const deleteNewChatPhoto =
+        form.get(
+            "deleteNewChatPhoto"
+        ) === "1";
 
     const photo =
         form.get(
@@ -2637,6 +2688,14 @@ async function handleCropSubmit(
         console.log(
             "CROP SUBMIT: setting chat photo"
         );
+
+        if (deleteNewChatPhoto) {
+            await setPendingPhotoDelete(
+                env,
+                session.chatId,
+                session.userId
+            );
+        }
 
         await setChatPhoto(
             env,
@@ -3002,6 +3061,12 @@ async function handleMessage(
             caption:
                 message.caption,
 
+            hasNewChatPhoto:
+                Array.isArray(
+                    message.new_chat_photo
+                ) &&
+                message.new_chat_photo.length > 0,
+
             hasReply:
                 !!message.reply_to_message,
 
@@ -3032,6 +3097,30 @@ async function handleMessage(
         chat?.id;
 
     if (!chatId) {
+        return;
+    }
+
+    /*
+     * Telegram creates a service message
+     * containing new_chat_photo after the
+     * chat profile photo is changed.
+     *
+     * Handle this before normal message
+     * processing so it doesn't get treated
+     * as a menu summon or photo reply.
+     */
+
+    if (
+        Array.isArray(
+            message.new_chat_photo
+        ) &&
+        message.new_chat_photo.length
+    ) {
+        await handleNewChatPhoto(
+            env,
+            message
+        );
+
         return;
     }
 
@@ -3133,6 +3222,69 @@ async function handleMessage(
             null,
         chat.type
     );
+}
+
+async function handleNewChatPhoto(
+    env,
+    message
+) {
+    if (
+        !Array.isArray(
+            message.new_chat_photo
+        ) ||
+        !message.new_chat_photo.length
+    ) {
+        return false;
+    }
+
+    const chatId =
+        message.chat?.id;
+
+    if (
+        chatId === undefined ||
+        chatId === null
+    ) {
+        return false;
+    }
+
+    const pending =
+        await getPendingPhotoDelete(
+            env,
+            chatId
+        );
+
+    if (!pending) {
+        return false;
+    }
+
+    await deletePendingPhotoDelete(
+        env,
+        chatId
+    );
+
+    if (
+        pending.userId &&
+        message.from?.id &&
+        Number(pending.userId) !==
+            Number(message.from.id)
+    ) {
+        return false;
+    }
+
+    try {
+        await deleteMessage(
+            env,
+            chatId,
+            message.message_id
+        );
+    } catch (error) {
+        console.error(
+            "Unable to delete generated chat photo message:",
+            error
+        );
+    }
+
+    return true;
 }
 
 
