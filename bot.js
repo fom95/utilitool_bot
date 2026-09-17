@@ -93,13 +93,47 @@ async function editMessage(
     );
 }
 
-async function deleteMessage(env, chatId, messageId) {
-    try {
-        await telegram(env, "deleteMessage", {
-            chat_id: chatId,
-            message_id: messageId
-        });
-    } catch {}
+async function deleteMessage(
+    env,
+    chatId,
+    messageId
+) {
+    return telegram(
+        env,
+        "deleteMessage",
+        {
+            chat_id:
+                chatId,
+
+            message_id:
+                messageId
+        }
+    );
+}
+
+function isBotMentioned(message) {
+    const text =
+        message.text ||
+        message.caption ||
+        "";
+
+    const entities =
+        message.entities ||
+        message.caption_entities ||
+        [];
+
+    return entities.some(
+        entity =>
+            entity.type === "mention" &&
+            text
+                .slice(
+                    entity.offset,
+                    entity.offset +
+                        entity.length
+                )
+                .toLowerCase() ===
+                "@utilitool_bot"
+    );
 }
 
 async function createBaseMenu(
@@ -463,18 +497,7 @@ async function deleteMenuState(
     );
 }
 
-function isSetPhotoCommand(message) {
-    const text =
-        message.text ||
-        message.caption ||
-        "";
-
-    return /^\/setphoto(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(
-        text.trim()
-    );
-}
-
-function getCommandReplyPhoto(message) {
+function getReplyImage(message) {
     const reply =
         message.reply_to_message;
 
@@ -486,11 +509,13 @@ function getCommandReplyPhoto(message) {
         Array.isArray(reply.photo) &&
         reply.photo.length
     ) {
-        return reply.photo.slice().sort(
-            (a, b) =>
-                (b.file_size || 0) -
-                (a.file_size || 0)
-        )[0];
+        return reply.photo
+            .slice()
+            .sort(
+                (a, b) =>
+                    (b.file_size || 0) -
+                    (a.file_size || 0)
+            )[0];
     }
 
     const document =
@@ -531,170 +556,6 @@ function getCommandReplyPhoto(message) {
 
 function getUserFromMessage(message) {
     return message.from || null;
-}
-
-async function handleSetPhotoCommand(
-    env,
-    message
-) {
-    const photo =
-        getCommandReplyPhoto(
-            message
-        );
-
-    if (!photo) {
-        await sendMessage(
-            env,
-            message.chat.id,
-            "I received /setphoto, but the replied-to message does not contain an image."
-        );
-
-        return;
-    }
-
-    if (
-        photo.file_size &&
-        photo.file_size >
-            20 * 1024 * 1024
-    ) {
-        await sendMessage(
-            env,
-            message.chat.id,
-            "That image is too large. Telegram bots can only download files up to 20 MB."
-        );
-
-        return;
-    }
-
-    const user =
-        getUserFromMessage(
-            message
-        );
-
-    const sessionId =
-        randomId();
-
-    let menuState =
-        await getMenuState(
-            env,
-            message.chat.id
-        );
-
-    /*
-     * If there is no active menu, create one.
-     */
-    if (!menuState?.messageId) {
-        const menu =
-            await createBaseMenu(
-                env,
-                message.chat.id,
-                user?.username ||
-                    "there"
-            );
-
-        menuState = {
-            chatId:
-                message.chat.id,
-
-            messageId:
-                menu.message_id
-        };
-    }
-
-    await saveSession(
-        env,
-        sessionId,
-        {
-            chatId:
-                message.chat.id,
-
-            fileId:
-                photo.file_id,
-
-            userId:
-                user?.id ||
-                null,
-
-            username:
-                user?.username ||
-                null,
-
-            firstName:
-                user?.first_name ||
-                null,
-
-            menuMessageId:
-                menuState.messageId
-        }
-    );
-
-    const menu =
-        cropMenu(
-            sessionId
-        );
-
-    try {
-        await editMessage(
-            env,
-            message.chat.id,
-            menuState.messageId,
-            menu
-        );
-    } catch (error) {
-        console.error(
-            "Unable to edit crop menu:",
-            error
-        );
-
-        /*
-         * The menu may have been deleted.
-         * Create a new one and make it the active menu.
-         */
-        const newMenu =
-            await createBaseMenu(
-                env,
-                message.chat.id,
-                user?.username ||
-                    "there"
-            );
-
-        menuState.messageId =
-            newMenu.message_id;
-
-        await saveSession(
-            env,
-            sessionId,
-            {
-                chatId:
-                    message.chat.id,
-
-                fileId:
-                    photo.file_id,
-
-                userId:
-                    user?.id ||
-                    null,
-
-                username:
-                    user?.username ||
-                    null,
-
-                firstName:
-                    user?.first_name ||
-                    null,
-
-                menuMessageId:
-                    newMenu.message_id
-            }
-        );
-
-        await editMessage(
-            env,
-            message.chat.id,
-            newMenu.message_id,
-            menu
-        );
-    }
 }
 
 async function validateTelegramInitData(
@@ -953,6 +814,148 @@ function getInitData(request) {
                 ""
             ) ||
         ""
+    );
+}
+
+async function handlePhotoReply(
+    env,
+    message
+) {
+    if (!message.reply_to_message) {
+        return;
+    }
+
+    if (!isBotMentioned(message)) {
+        return;
+    }
+
+    const menuState =
+        await getMenuState(
+            env,
+            message.chat.id
+        );
+
+    if (
+        !menuState ||
+        menuState.mode !==
+            "waiting_for_photo"
+    ) {
+        return;
+    }
+
+    if (
+        !menuState.requesterId ||
+        message.from?.id !==
+            menuState.requesterId
+    ) {
+        return;
+    }
+
+    const photo =
+        getReplyImage(
+            message
+        );
+
+    if (!photo) {
+        await sendMessage(
+            env,
+            message.chat.id,
+            "The message you replied to doesn't contain an image."
+        );
+
+        return;
+    }
+
+    if (
+        photo.file_size &&
+        photo.file_size >
+            20 * 1024 * 1024
+    ) {
+        await sendMessage(
+            env,
+            message.chat.id,
+            "That image is too large. Telegram bots can only download files up to 20 MB."
+        );
+
+        return;
+    }
+
+    const sessionId =
+        randomId();
+
+    await saveSession(
+        env,
+        sessionId,
+        {
+            chatId:
+                message.chat.id,
+
+            fileId:
+                photo.file_id,
+
+            userId:
+                message.from.id,
+
+            username:
+                message.from?.username ||
+                null,
+
+            firstName:
+                message.from?.first_name ||
+                null,
+
+            menuMessageId:
+                menuState.messageId
+        }
+    );
+
+    /*
+     * The file_id is now safely stored in the
+     * crop session, so the @bot reply itself
+     * is no longer needed.
+     */
+    try {
+        await deleteMessage(
+            env,
+            message.chat.id,
+            message.message_id
+        );
+    } catch (error) {
+        console.error(
+            "Unable to delete photo reply:",
+            error
+        );
+    }
+
+    const menu =
+        cropMenu(
+            sessionId
+        );
+
+    try {
+        await editMessage(
+            env,
+            message.chat.id,
+            menuState.messageId,
+            menu
+        );
+    } catch (error) {
+        console.error(
+            "Unable to edit crop menu:",
+            error
+        );
+    }
+
+    await CACHE(env).put(
+        menuStateKey(
+            message.chat.id
+        ),
+        JSON.stringify({
+            ...menuState,
+            mode:
+                "crop",
+            sessionId
+        })
     );
 }
 
@@ -1415,39 +1418,80 @@ async function handleCallback(
                     callback.id
             }
         );
-
+    
+        await saveMenuState(
+            env,
+            chatId,
+            messageId,
+            callback.from?.username ||
+                null
+        );
+    
+        const menuState =
+            await getMenuState(
+                env,
+                chatId
+            );
+    
+        await CACHE(env).put(
+            menuStateKey(chatId),
+            JSON.stringify({
+                ...menuState,
+                requesterId:
+                    callback.from.id,
+                requesterUsername:
+                    callback.from?.username ||
+                    null,
+                mode:
+                    "waiting_for_photo"
+            })
+        );
+    
         await editMessage(
             env,
             chatId,
             messageId,
             photoMenu()
         );
-
+    
         return;
     }
 
     if (data === "cancel_photo") {
-        await telegram(
-            env,
-            "answerCallbackQuery",
-            {
-                callback_query_id:
-                    callback.id
-            }
-        );
+    await telegram(
+        env,
+        "answerCallbackQuery",
+        {
+            callback_query_id:
+                callback.id
+        }
+    );
 
-        await editMessage(
-            env,
+    await CACHE(env).put(
+        menuStateKey(chatId),
+        JSON.stringify({
             chatId,
             messageId,
-            mainMenu(
+            username:
                 callback.from?.username ||
-                    "there"
-            )
-        );
+                null,
+            mode:
+                "base"
+        })
+    );
 
-        return;
-    }
+    await editMessage(
+        env,
+        chatId,
+        messageId,
+        mainMenu(
+            callback.from?.username ||
+                "there"
+        )
+    );
+
+    return;
+}
 
     if (
         data.startsWith(
@@ -1606,17 +1650,11 @@ async function handleMessage(
     env,
     message
 ) {
-    const text =
-        message.text ||
-        message.caption ||
-        "";
-
     if (
-        /^\/setphoto(?:@[A-Za-z0-9_]+)?(?:\s|$)/i.test(
-            text.trim()
-        )
+        message.reply_to_message &&
+        isBotMentioned(message)
     ) {
-        await handleSetPhotoCommand(
+        await handlePhotoReply(
             env,
             message
         );
@@ -1624,17 +1662,16 @@ async function handleMessage(
         return;
     }
 
-    /*
-     * A normal @bot mention brings the menu back.
-     *
-     * Do not treat a reply containing @bot as
-     * a request to show the menu.
-     */
     if (
         message.reply_to_message
     ) {
         return;
     }
+
+    const text =
+        message.text ||
+        message.caption ||
+        "";
 
     const entities =
         message.entities ||
