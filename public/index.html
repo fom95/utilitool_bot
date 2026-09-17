@@ -987,11 +987,13 @@ function getFilteredLibrary() {
 
     return photos.filter(
         photo =>
-            String(
-                photo.sourceChatId
-            ) ===
-            String(
-                currentChatId
+            Array.isArray(
+                photo.sourceChats
+            ) &&
+            photo.sourceChats.some(
+                chat =>
+                    String(chat.id) ===
+                    String(currentChatId)
             )
     );
 }
@@ -1115,10 +1117,27 @@ function openLibraryPhoto(
             photo
         );
 
-    libraryPreviewInfo.textContent =
-        photo.sourceChatTitle
-            ? `From ${photo.sourceChatTitle}`
-            : "Saved profile photo";
+    const sourceChats =
+        Array.isArray(
+            photo.sourceChats
+        )
+            ? photo.sourceChats
+            : [];
+    
+    if (sourceChats.length) {
+        libraryPreviewInfo.textContent =
+            `From ${sourceChats
+                .map(
+                    chat =>
+                        chat.title ||
+                        chat.username ||
+                        String(chat.id)
+                )
+                .join(", ")}`;
+    } else {
+        libraryPreviewInfo.textContent =
+            "Saved profile photo";
+    }
 
     libraryPreview.classList.remove(
         "hidden"
