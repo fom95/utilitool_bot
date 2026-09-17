@@ -251,24 +251,20 @@ function isSetPhotoCommand(message) {
 }
 
 function getCommandReplyPhoto(message) {
-    const candidates = [
-        message.reply_to_message,
-        message.external_reply
-    ];
+    const reply =
+        message.reply_to_message;
 
-    for (const reply of candidates) {
-        if (
-            Array.isArray(reply?.photo) &&
-            reply.photo.length
-        ) {
-            return reply.photo
-                .slice()
-                .sort(
-                    (a, b) =>
-                        (b.file_size || 0) -
-                        (a.file_size || 0)
-                )[0];
-        }
+    if (
+        Array.isArray(reply?.photo) &&
+        reply.photo.length
+    ) {
+        return reply.photo
+            .slice()
+            .sort(
+                (a, b) =>
+                    (b.file_size || 0) -
+                    (a.file_size || 0)
+            )[0];
     }
 
     return null;
@@ -289,7 +285,7 @@ async function handleSetPhotoCommand(
         await sendMessage(
             env,
             message.chat.id,
-            "I couldn't find a photo in the message you replied to."
+            "I received /setphoto, but Telegram did not include the replied-to photo in this update."
         );
 
         return;
@@ -297,7 +293,8 @@ async function handleSetPhotoCommand(
 
     if (
         photo.file_size &&
-        photo.file_size > 20 * 1024 * 1024
+        photo.file_size >
+            20 * 1024 * 1024
     ) {
         await sendMessage(
             env,
@@ -328,12 +325,10 @@ async function handleSetPhotoCommand(
                 user?.id || null,
 
             username:
-                user?.username ||
-                null,
+                user?.username || null,
 
             firstName:
-                user?.first_name ||
-                null
+                user?.first_name || null
         }
     );
 
@@ -1073,8 +1068,15 @@ async function handleMessage(
     env,
     message
 ) {
+    const text =
+        message.text ||
+        message.caption ||
+        "";
+
     if (
-        !isSetPhotoCommand(message)
+        !text.toLowerCase().includes(
+            "/setphoto"
+        )
     ) {
         return;
     }
