@@ -2034,17 +2034,15 @@ async function handlePhotoReply(
         "handlePhotoReply:",
         JSON.stringify({
             chatId,
-
             messageId:
                 message.message_id,
-
             fromId:
                 message.from?.id
         })
     );
 
     if (!chatId) {
-        return;
+        return false;
     }
 
     const menuState =
@@ -2065,7 +2063,7 @@ async function handlePhotoReply(
             "PHOTO REPLY STOP: no menu state"
         );
 
-        return;
+        return false;
     }
 
     if (
@@ -2077,7 +2075,7 @@ async function handlePhotoReply(
             menuState.mode
         );
 
-        return;
+        return false;
     }
 
     if (
@@ -2087,7 +2085,7 @@ async function handlePhotoReply(
             "PHOTO REPLY STOP: no requester ID"
         );
 
-        return;
+        return false;
     }
 
     if (
@@ -2101,7 +2099,7 @@ async function handlePhotoReply(
             menuState.requesterId
         );
 
-        return;
+        return false;
     }
 
     const photo =
@@ -2121,7 +2119,7 @@ async function handlePhotoReply(
             "The message you replied to doesn't contain an image."
         );
 
-        return;
+        return true;
     }
 
     if (
@@ -2135,7 +2133,18 @@ async function handlePhotoReply(
             "That image is too large. Telegram bots can only download files up to 20 MB."
         );
 
-        return;
+        return true;
+    }
+
+    const menuMessageId =
+        menuState.messageId;
+
+    if (!menuMessageId) {
+        console.error(
+            "PHOTO REPLY STOP: menu state has no message ID"
+        );
+
+        return false;
     }
 
     const sessionId =
@@ -2171,8 +2180,7 @@ async function handlePhotoReply(
                 message.from?.first_name ||
                 null,
 
-            menuMessageId:
-                menuState.messageId
+            menuMessageId
         }
     );
 
@@ -2201,12 +2209,6 @@ async function handlePhotoReply(
         );
     }
 
-        const currentMenuState =
-        await getMenuState(
-            env,
-            chatId
-        );
-
     const context =
         createMenuContext(
             env,
@@ -2217,10 +2219,17 @@ async function handlePhotoReply(
                 user:
                     message.from,
 
-                message,
+                message: {
+                    message_id:
+                        menuMessageId
+                },
 
-                state:
-                    currentMenuState,
+                state: {
+                    ...menuState,
+
+                    messageId:
+                        menuMessageId
+                },
 
                 data: {
                     sessionId
@@ -2250,14 +2259,13 @@ async function handlePhotoReply(
                 chatId,
 
                 messageId:
-                    currentMenuState?.messageId ||
-                    null,
+                    menuMessageId,
 
                 sessionId
             })
         );
 
-        return;
+        return true;
     }
 
     await updateMenuState(
@@ -2274,6 +2282,8 @@ async function handlePhotoReply(
     console.log(
         "PHOTO REPLY COMPLETE"
     );
+
+    return true;
 }
 
 
