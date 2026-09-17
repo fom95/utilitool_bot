@@ -1,11 +1,27 @@
+// ============================================================
+// CONFIGURATION
+// ============================================================
+
 async function BOT_TOKEN(env) {
     return env.TELEGRAM_BOT_TOKEN.get();
 }
-const CACHE = env => env.UTILITOOL_BOT_CACHE;
 
-const SESSION_TTL = 15 * 60;
+const CACHE =
+    env => env.UTILITOOL_BOT_CACHE;
 
-async function telegram(env, method, body = null) {
+const SESSION_TTL =
+    15 * 60;
+
+
+// ============================================================
+// TELEGRAM API
+// ============================================================
+
+async function telegram(
+    env,
+    method,
+    body = null
+) {
     const token =
         await BOT_TOKEN(env);
 
@@ -22,12 +38,18 @@ async function telegram(env, method, body = null) {
         `https://api.telegram.org/bot${token}/${method}`;
 
     const options = {
-        method: body ? "POST" : "GET",
+        method:
+            body
+                ? "POST"
+                : "GET",
+
         headers: {}
     };
 
     if (body) {
-        options.headers["Content-Type"] =
+        options.headers[
+            "Content-Type"
+        ] =
             "application/json";
 
         options.body =
@@ -35,7 +57,10 @@ async function telegram(env, method, body = null) {
     }
 
     const response =
-        await fetch(url, options);
+        await fetch(
+            url,
+            options
+        );
 
     const text =
         await response.text();
@@ -60,13 +85,27 @@ async function telegram(env, method, body = null) {
     return data.result;
 }
 
-async function sendMessage(env, chatId, text, extra = {}) {
-    return telegram(env, "sendMessage", {
-        chat_id: chatId,
-        text,
-        ...extra
-    });
+
+async function sendMessage(
+    env,
+    chatId,
+    text,
+    extra = {}
+) {
+    return telegram(
+        env,
+        "sendMessage",
+        {
+            chat_id:
+                chatId,
+
+            text,
+
+            ...extra
+        }
+    );
 }
+
 
 async function editMessage(
     env,
@@ -93,6 +132,7 @@ async function editMessage(
     );
 }
 
+
 async function deleteMessage(
     env,
     chatId,
@@ -111,49 +151,628 @@ async function deleteMessage(
     );
 }
 
-function isBotMentioned(message) {
-    const text =
-        message.text ||
-        message.caption ||
-        "";
 
-    const entities =
-        message.entities ||
-        message.caption_entities ||
-        [];
+async function answerCallback(
+    env,
+    callbackId
+) {
+    try {
+        await telegram(
+            env,
+            "answerCallbackQuery",
+            {
+                callback_query_id:
+                    callbackId
+            }
+        );
+    } catch {}
+}
 
-    const entityMention =
-        entities.some(
-            entity => {
-                if (
-                    entity.type !==
-                    "mention"
-                ) {
-                    return false;
-                }
 
-                const mention =
-                    text.slice(
-                        entity.offset,
-                        entity.offset +
-                            entity.length
-                    );
+async function leaveChat(
+    env,
+    chatId
+) {
+    try {
+        await telegram(
+            env,
+            "leaveChat",
+            {
+                chat_id:
+                    chatId
+            }
+        );
+    } catch {}
+}
 
-                return (
-                    mention.toLowerCase() ===
-                    "@utilitool_bot"
-                );
+
+async function getFile(
+    env,
+    fileId
+) {
+    return telegram(
+        env,
+        "getFile",
+        {
+            file_id:
+                fileId
+        }
+    );
+}
+
+
+async function downloadTelegramFile(
+    env,
+    fileId
+) {
+    const file =
+        await getFile(
+            env,
+            fileId
+        );
+
+    if (!file.file_path) {
+        throw new Error(
+            "Telegram did not return a file path."
+        );
+    }
+
+    const token =
+        await BOT_TOKEN(env);
+
+    const response =
+        await fetch(
+            `https://api.telegram.org/file/bot${token}/${file.file_path}`
+        );
+
+    if (!response.ok) {
+        throw new Error(
+            `Telegram file download failed: ${response.status}`
+        );
+    }
+
+    return {
+        response,
+        file
+    };
+}
+
+
+async function setChatPhoto(
+    env,
+    chatId,
+    blob
+) {
+    const form =
+        new FormData();
+
+    form.append(
+        "chat_id",
+        String(chatId)
+    );
+
+    form.append(
+        "photo",
+        blob,
+        "profile.jpg"
+    );
+
+    const token =
+        await BOT_TOKEN(env);
+
+    const response =
+        await fetch(
+            `https://api.telegram.org/bot${token}/setChatPhoto`,
+            {
+                method:
+                    "POST",
+
+                body:
+                    form
             }
         );
 
-    if (entityMention) {
-        return true;
+    const data =
+        await response.json();
+
+    if (!data.ok) {
+        throw new Error(
+            data.description ||
+            "setChatPhoto failed."
+        );
     }
 
-    return /@utilitool_bot\b/i.test(
-        text
+    return data.result;
+}
+
+
+// ============================================================
+// UI SYSTEM
+//
+// This is the main human-editable part of the bot.
+//
+// Menu:
+//
+//     Menu({
+//         text: "...",
+//         buttons: [
+//             Button("...", {
+//                 action: "..."
+//             })
+//         ]
+//     })
+//
+// Button:
+//
+//     Button("...", {
+//         action: "..."
+//     })
+//
+// Context:
+//
+//     ctx.username
+//     ctx.user
+//     ctx.chat
+//     ctx.state
+//     ctx.data
+//     ctx.env
+// ============================================================
+
+function Button(
+    text,
+    options = {}
+) {
+    return {
+        text,
+        ...options
+    };
+}
+
+
+function Menu(
+    options = {}
+) {
+    return {
+        text:
+            typeof options.text === "function"
+                ? options.text
+                : () =>
+                    options.text ||
+                    "",
+
+        buttons:
+            typeof options.buttons === "function"
+                ? options.buttons
+                : () =>
+                    options.buttons ||
+                    []
+    };
+}
+
+
+function renderButton(
+    button,
+    context
+) {
+    const result = {
+        text:
+            typeof button.text === "function"
+                ? button.text(context)
+                : button.text
+    };
+
+    if (button.url) {
+        result.url =
+            typeof button.url === "function"
+                ? button.url(context)
+                : button.url;
+    }
+
+    if (
+        button.action !==
+        undefined
+    ) {
+        result.callback_data =
+            typeof button.action === "function"
+                ? button.action(context)
+                : button.action;
+    }
+
+    if (
+        button.callback !==
+        undefined
+    ) {
+        result.callback_data =
+            typeof button.callback === "function"
+                ? button.callback(context)
+                : button.callback;
+    }
+
+    return result;
+}
+
+
+function renderMenu(
+    menu,
+    context
+) {
+    const buttons =
+        typeof menu.buttons === "function"
+            ? menu.buttons(context)
+            : menu.buttons || [];
+
+    return {
+        text:
+            typeof menu.text === "function"
+                ? menu.text(context)
+                : menu.text,
+
+        reply_markup: {
+            inline_keyboard:
+                buttons.map(row => {
+                    const items =
+                        Array.isArray(row)
+                            ? row
+                            : [row];
+
+                    return items.map(
+                        button =>
+                            renderButton(
+                                button,
+                                context
+                            )
+                    );
+                })
+        }
+    };
+}
+
+
+// ============================================================
+// MENU STATE
+// ============================================================
+
+function menuStateKey(
+    chatId
+) {
+    return `menu:${String(chatId)}`;
+}
+
+
+async function getMenuState(
+    env,
+    chatId
+) {
+    const value =
+        await CACHE(env).get(
+            menuStateKey(chatId),
+            "json"
+        );
+
+    return value || null;
+}
+
+
+async function saveMenuState(
+    env,
+    chatId,
+    state
+) {
+    await CACHE(env).put(
+        menuStateKey(chatId),
+        JSON.stringify(state)
+    );
+
+    return state;
+}
+
+
+async function updateMenuState(
+    env,
+    chatId,
+    changes
+) {
+    const existing =
+        await getMenuState(
+            env,
+            chatId
+        );
+
+    const state = {
+        ...(existing || {}),
+        ...changes
+    };
+
+    await saveMenuState(
+        env,
+        chatId,
+        state
+    );
+
+    return state;
+}
+
+
+async function deleteMenuState(
+    env,
+    chatId
+) {
+    await CACHE(env).delete(
+        menuStateKey(chatId)
     );
 }
+
+
+// ============================================================
+// MENU CONTEXT
+// ============================================================
+
+function createMenuContext(
+    env,
+    {
+        chat,
+        user = null,
+        message = null,
+        callback = null,
+        state = null,
+        data = {}
+    }
+) {
+    const context = {
+        env,
+
+        chat,
+        user,
+
+        message,
+        callback,
+
+        state,
+
+        data,
+
+        chatId:
+            chat?.id ??
+            null,
+
+        chatType:
+            chat?.type ||
+            "private",
+
+        userId:
+            user?.id ??
+            null,
+
+        username:
+            user?.username ||
+            user?.first_name ||
+            "there"
+    };
+
+    context.edit =
+        async menu => {
+            const messageId =
+                context.state?.messageId ||
+                context.message?.message_id;
+
+            if (!messageId) {
+                return null;
+            }
+
+            const rendered =
+                getMenu(
+                    menu,
+                    context
+                );
+
+            return editMessage(
+                env,
+                context.chatId,
+                messageId,
+                rendered
+            );
+        };
+
+    context.send =
+        async menu => {
+            const rendered =
+                getMenu(
+                    menu,
+                    context
+                );
+
+            const sent =
+                await sendMessage(
+                    env,
+                    context.chatId,
+                    rendered.text,
+                    {
+                        reply_markup:
+                            rendered.reply_markup
+                    }
+                );
+
+            return sent;
+        };
+
+    context.setState =
+        async changes => {
+            context.state =
+                await updateMenuState(
+                    env,
+                    context.chatId,
+                    changes
+                );
+
+            return context.state;
+        };
+
+    context.show =
+        async menu => {
+            return context.edit(
+                menu
+            );
+        };
+
+    return context;
+}
+
+
+// ============================================================
+// MENU CREATION / RENDERING
+// ============================================================
+
+function getMenu(
+    menuName,
+    context
+) {
+    const menu =
+        Menus[menuName];
+
+    if (!menu) {
+        throw new Error(
+            `Unknown menu: ${menuName}`
+        );
+    }
+
+    return renderMenu(
+        menu,
+        context
+    );
+}
+
+
+async function createMenu(
+    env,
+    {
+        menu,
+        chat,
+        user = null,
+        message = null,
+        callback = null,
+        state = null,
+        data = {}
+    }
+) {
+    const context =
+        createMenuContext(
+            env,
+            {
+                chat,
+                user,
+                message,
+                callback,
+                state,
+                data
+            }
+        );
+
+    const rendered =
+        getMenu(
+            menu,
+            context
+        );
+
+    const sent =
+        await sendMessage(
+            env,
+            chat.id,
+            rendered.text,
+            {
+                reply_markup:
+                    rendered.reply_markup
+            }
+        );
+
+    const newState = {
+        ...(state || {}),
+
+        chatId:
+            chat.id,
+
+        messageId:
+            sent.message_id,
+
+        username:
+            context.username,
+
+        lastUserId:
+            user?.id != null
+                ? Number(user.id)
+                : state?.lastUserId ||
+                  null,
+
+        lastUsername:
+            user?.username ||
+            state?.lastUsername ||
+            null,
+
+        chatType:
+            chat.type,
+
+        mode:
+            menu
+    };
+
+    await saveMenuState(
+        env,
+        chat.id,
+        newState
+    );
+
+    return sent;
+}
+
+
+async function editMenu(
+    env,
+    {
+        menu,
+        chat,
+        user = null,
+        message = null,
+        callback = null,
+        state = null,
+        data = {}
+    }
+) {
+    const context =
+        createMenuContext(
+            env,
+            {
+                chat,
+                user,
+                message,
+                callback,
+                state,
+                data
+            }
+        );
+
+    const rendered =
+        getMenu(
+            menu,
+            context
+        );
+
+    const messageId =
+        state?.messageId ||
+        message?.message_id;
+
+    if (!messageId) {
+        return null;
+    }
+
+    await editMessage(
+        env,
+        chat.id,
+        messageId,
+        rendered
+    );
+
+    return messageId;
+}
+
 
 async function createBaseMenu(
     env,
@@ -162,53 +781,30 @@ async function createBaseMenu(
     userId = null,
     chatType = "private"
 ) {
-    const menu =
-        mainMenu(
-            username || "there",
-            chatType
-        );
+    return createMenu(
+        env,
+        {
+            menu:
+                "base",
 
-    const message =
-        await sendMessage(
-            env,
-            chatId,
-            menu.text,
-            {
-                reply_markup:
-                    menu.reply_markup
+            chat: {
+                id:
+                    chatId,
+
+                type:
+                    chatType
+            },
+
+            user: {
+                id:
+                    userId,
+
+                username
             }
-        );
-
-    const state = {
-        chatId,
-
-        messageId:
-            message.message_id,
-
-        username:
-            username || null,
-
-        lastUserId:
-            userId != null
-                ? Number(userId)
-                : null,
-
-        lastUsername:
-            username || null,
-
-        chatType,
-
-        mode:
-            "base"
-    };
-
-    await CACHE(env).put(
-        menuStateKey(chatId),
-        JSON.stringify(state)
+        }
     );
-
-    return message;
 }
+
 
 async function showBaseMenu(
     env,
@@ -264,146 +860,613 @@ async function showBaseMenu(
     }
 
     const message =
-        await createBaseMenu(
+        await createMenu(
             env,
-            chatId,
-            username,
-            userId,
-            chatType
+            {
+                menu:
+                    "base",
+
+                chat: {
+                    id:
+                        chatId,
+
+                    type:
+                        chatType
+                },
+
+                user: {
+                    id:
+                        userId,
+
+                    username
+                }
+            }
         );
 
     return message.message_id;
 }
 
-async function editCurrentMenu(
-    env,
-    chatId,
-    menu
+
+// ============================================================
+// MENUS
+//
+// THIS is where new bot content should primarily be added.
+//
+// Add a new menu:
+//
+//     settings: Menu({
+//         text: "Settings",
+//         buttons: [
+//             Button("Something", {
+//                 action: "something"
+//             })
+//         ]
+//     })
+//
+// Then add its action in Actions below.
+// ============================================================
+
+const Menus = {
+
+    // --------------------------------------------------------
+    // BASE MENU
+    // --------------------------------------------------------
+
+    base:
+        Menu({
+            text:
+                ctx =>
+                    `@${ctx.username}, what would you like me to do?`,
+
+            buttons:
+                ctx => {
+                    if (
+                        ctx.chatType ===
+                        "private"
+                    ) {
+                        return [
+                            Button(
+                                "➕ Add to Group",
+                                {
+                                    url:
+                                        "https://t.me/utilitool_bot?startgroup=setup&admin=change_info+delete_messages"
+                                }
+                            ),
+
+                            Button(
+                                "📢 Add to Channel",
+                                {
+                                    url:
+                                        "https://t.me/utilitool_bot?startchannel&admin=change_info+post_messages+edit_messages+delete_messages"
+                                }
+                            )
+                        ];
+                    }
+
+                    return [
+                        [
+                            Button(
+                                "Change Profile Photo",
+                                {
+                                    action:
+                                        "photo"
+                                }
+                            )
+                        ],
+
+                        [
+                            Button(
+                                "Bye",
+                                {
+                                    action:
+                                        "bye"
+                                }
+                            )
+                        ]
+                    ];
+                }
+        }),
+
+
+    // --------------------------------------------------------
+    // BYE CONFIRMATION
+    // --------------------------------------------------------
+
+    bye:
+        Menu({
+            text:
+                "Are you sure you want me to leave?",
+
+            buttons: [
+                [
+                    Button(
+                        "Yes",
+                        {
+                            action:
+                                "bye_confirm"
+                        }
+                    ),
+
+                    Button(
+                        "No",
+                        {
+                            action:
+                                "bye_cancel"
+                        }
+                    )
+                ]
+            ]
+        }),
+
+
+    // --------------------------------------------------------
+    // PHOTO INPUT
+    // --------------------------------------------------------
+
+    photo:
+        Menu({
+            text:
+                "Reply to the image or image document you want to use with @utilitool_bot.",
+
+            buttons: [
+                Button(
+                    "Cancel",
+                    {
+                        action:
+                            "cancel_photo"
+                    }
+                )
+            ]
+        }),
+
+
+    // --------------------------------------------------------
+    // IMAGE CROP
+    // --------------------------------------------------------
+
+    crop:
+        Menu({
+            text:
+                "Position the square over the part of the image you want to use, then press Apply.",
+
+            buttons:
+                ctx => [
+                    Button(
+                        "Open Photo Cropper",
+                        {
+                            url:
+                                `https://t.me/utilitool_bot/main?startapp=${encodeURIComponent(ctx.data.sessionId)}`
+                        }
+                    ),
+
+                    Button(
+                        "Cancel",
+                        {
+                            action:
+                                ctx =>
+                                    `cancel_photo:${ctx.data.sessionId}`
+                        }
+                    )
+                ]
+        })
+};
+
+
+// ============================================================
+// MENU ACTIONS
+//
+// Buttons point here using:
+//
+//     Button("...", {
+//         action: "photo"
+//     })
+//
+// Actions receive the full context:
+//
+//     ctx.env
+//     ctx.chat
+//     ctx.user
+//     ctx.message
+//     ctx.callback
+//     ctx.state
+//     ctx.data
+//     ctx.chatId
+//     ctx.chatType
+//     ctx.userId
+//     ctx.username
+//
+// Dynamic button actions can additionally receive parameters.
+// ============================================================
+
+const Actions = {
+
+    // --------------------------------------------------------
+    // CHANGE PROFILE PHOTO
+    // --------------------------------------------------------
+
+    photo:
+        async ctx => {
+            await ctx.setState({
+                username:
+                    ctx.username,
+
+                lastUserId:
+                    Number(
+                        ctx.userId
+                    ),
+
+                lastUsername:
+                    ctx.user?.username ||
+                    null,
+
+                requesterId:
+                    Number(
+                        ctx.userId
+                    ),
+
+                requesterUsername:
+                    ctx.user?.username ||
+                    null,
+
+                mode:
+                    "waiting_for_photo"
+            });
+
+            await ctx.edit(
+                Menus.photo
+            );
+        },
+
+
+    // --------------------------------------------------------
+    // CANCEL PHOTO SELECTION
+    // --------------------------------------------------------
+
+    cancel_photo:
+        async ctx => {
+            await ctx.setState({
+                username:
+                    ctx.username,
+
+                lastUserId:
+                    Number(
+                        ctx.userId
+                    ),
+
+                lastUsername:
+                    ctx.user?.username ||
+                    null,
+
+                mode:
+                    "base"
+            });
+
+            await ctx.edit(
+                Menus.base
+            );
+        },
+
+
+    // --------------------------------------------------------
+    // CANCEL PHOTO CROP
+    //
+    // This receives the session ID from:
+    //
+    //     cancel_photo:SESSION_ID
+    // --------------------------------------------------------
+
+    cancel_photo_session:
+        async ctx => {
+            const sessionId =
+                ctx.data.sessionId;
+
+            if (sessionId) {
+                await deleteSession(
+                    ctx.env,
+                    sessionId
+                );
+            }
+
+            await ctx.setState({
+                username:
+                    ctx.username,
+
+                lastUserId:
+                    Number(
+                        ctx.userId
+                    ),
+
+                lastUsername:
+                    ctx.user?.username ||
+                    null,
+
+                mode:
+                    "base"
+            });
+
+            await ctx.edit(
+                Menus.base
+            );
+        },
+
+
+    // --------------------------------------------------------
+    // SHOW BYE CONFIRMATION
+    // --------------------------------------------------------
+
+    bye:
+        async ctx => {
+            await ctx.setState({
+                mode:
+                    "confirm_bye"
+            });
+
+            await ctx.edit(
+                Menus.bye
+            );
+        },
+
+
+    // --------------------------------------------------------
+    // CANCEL BYE
+    // --------------------------------------------------------
+
+    bye_cancel:
+        async ctx => {
+            await ctx.setState({
+                mode:
+                    "base"
+            });
+
+            await ctx.edit(
+                Menus.base
+            );
+        },
+
+
+    // --------------------------------------------------------
+    // CONFIRM BYE
+    // --------------------------------------------------------
+
+    bye_confirm:
+        async ctx => {
+            try {
+                await deleteMessage(
+                    ctx.env,
+                    ctx.chatId,
+                    ctx.state?.messageId ||
+                        ctx.message?.message_id
+                );
+            } catch (error) {
+                console.error(
+                    "Unable to delete goodbye menu:",
+                    error
+                );
+            }
+
+            await deleteMenuState(
+                ctx.env,
+                ctx.chatId
+            );
+
+            await leaveChat(
+                ctx.env,
+                ctx.chatId
+            );
+        }
+};
+
+
+// ============================================================
+// ACTION PARSING
+// ============================================================
+
+function parseAction(
+    value
 ) {
-    const state =
-        await getMenuState(
-            env,
-            chatId
-        );
-
-    if (!state?.messageId) {
-        return null;
-    }
-
-    try {
-        await editMessage(
-            env,
-            chatId,
-            state.messageId,
-            menu
-        );
-
-        return state.messageId;
-    } catch (error) {
-        console.error(
-            "Unable to edit current menu:",
-            error
-        );
-
-        await deleteMenuState(
-            env,
-            chatId
-        );
-
-        return null;
-    }
-}
-
-async function leaveChat(env, chatId) {
-    try {
-        await telegram(env, "leaveChat", {
-            chat_id: chatId
-        });
-    } catch {}
-}
-
-async function answerCallback(env, callbackId) {
-    try {
-        await telegram(env, "answerCallbackQuery", {
-            callback_query_id: callbackId
-        });
-    } catch {}
-}
-
-async function getFile(env, fileId) {
-    return telegram(env, "getFile", {
-        file_id: fileId
-    });
-}
-
-async function downloadTelegramFile(env, fileId) {
-    const file =
-        await getFile(env, fileId);
-
-    if (!file.file_path) {
-        throw new Error("Telegram did not return a file path.");
-    }
-
-    const token =
-        await BOT_TOKEN(env);
-    
-    const response =
-        await fetch(
-            `https://api.telegram.org/file/bot${token}/${file.file_path}`
-        );
-
-    if (!response.ok) {
-        throw new Error(
-            `Telegram file download failed: ${response.status}`
-        );
-    }
+    const parts =
+        String(value || "")
+            .split(":");
 
     return {
-        response,
-        file
+        name:
+            parts.shift() ||
+            "",
+
+        parameters:
+            parts
     };
 }
 
-async function setChatPhoto(env, chatId, blob) {
-    const form =
-        new FormData();
 
-    form.append(
-        "chat_id",
-        String(chatId)
-    );
+function resolveAction(
+    name,
+    parameters
+) {
+    /*
+     * Normal actions:
+     *
+     *     photo
+     *     bye
+     *     bye_cancel
+     *
+     * Dynamic actions:
+     *
+     *     cancel_photo:SESSION_ID
+     */
 
-    form.append(
-        "photo",
-        blob,
-        "profile.jpg"
-    );
+    if (
+        name ===
+        "cancel_photo" &&
+        parameters.length
+    ) {
+        return {
+            action:
+                Actions.cancel_photo_session,
 
-    const token =
-        await BOT_TOKEN(env);
-    
-    const response =
-        await fetch(
-            `https://api.telegram.org/bot${token}/setChatPhoto`,
+            data: {
+                sessionId:
+                    parameters[0]
+            }
+        };
+    }
+
+    return {
+        action:
+            Actions[name],
+
+        data: {}
+    };
+}
+
+
+// ============================================================
+// CALLBACK HANDLING
+// ============================================================
+
+async function handleMenuAction(
+    env,
+    callback
+) {
+    const chat =
+        callback.message?.chat;
+
+    if (!chat?.id) {
+        await answerCallback(
+            env,
+            callback.id
+        );
+
+        return;
+    }
+
+    const state =
+        await getMenuState(
+            env,
+            chat.id
+        );
+
+    const parsed =
+        parseAction(
+            callback.data
+        );
+
+    const resolved =
+        resolveAction(
+            parsed.name,
+            parsed.parameters
+        );
+
+    if (
+        typeof resolved.action !==
+        "function"
+    ) {
+        await answerCallback(
+            env,
+            callback.id
+        );
+
+        return;
+    }
+
+    const context =
+        createMenuContext(
+            env,
             {
-                method: "POST",
-                body: form
+                chat,
+
+                user:
+                    callback.from,
+
+                message:
+                    callback.message,
+
+                callback,
+
+                state,
+
+                data:
+                    resolved.data
             }
         );
 
-    const data =
-        await response.json();
+    await answerCallback(
+        env,
+        callback.id
+    );
 
-    if (!data.ok) {
-        throw new Error(
-            data.description || "setChatPhoto failed."
-        );
-    }
-
-    return data.result;
+    await resolved.action(
+        context,
+        ...parsed.parameters
+    );
 }
 
-function parseStartCommand(message) {
+
+async function handleCallback(
+    env,
+    callback
+) {
+    await handleMenuAction(
+        env,
+        callback
+    );
+}
+
+
+// ============================================================
+// BOT MENTIONS / COMMANDS
+// ============================================================
+
+function isBotMentioned(
+    message
+) {
+    const text =
+        message.text ||
+        message.caption ||
+        "";
+
+    const entities =
+        message.entities ||
+        message.caption_entities ||
+        [];
+
+    const entityMention =
+        entities.some(
+            entity => {
+                if (
+                    entity.type !==
+                    "mention"
+                ) {
+                    return false;
+                }
+
+                const mention =
+                    text.slice(
+                        entity.offset,
+                        entity.offset +
+                            entity.length
+                    );
+
+                return (
+                    mention.toLowerCase() ===
+                    "@utilitool_bot"
+                );
+            }
+        );
+
+    if (entityMention) {
+        return true;
+    }
+
+    return /@utilitool_bot\b/i.test(
+        text
+    );
+}
+
+
+function parseStartCommand(
+    message
+) {
     const text =
         String(
             message?.text ||
@@ -425,6 +1488,7 @@ function parseStartCommand(message) {
             null
     };
 }
+
 
 async function handleStartCommand(
     env,
@@ -449,9 +1513,6 @@ async function handleStartCommand(
         return true;
     }
 
-    /*
-     * Normal private /start.
-     */
     if (
         chat.type ===
         "private"
@@ -463,7 +1524,8 @@ async function handleStartCommand(
                 user?.first_name ||
                 "there",
             user?.id ||
-                null
+                null,
+            chat.type
         );
 
         return true;
@@ -471,9 +1533,13 @@ async function handleStartCommand(
 
     /*
      * /startgroup=setup causes Telegram
-     * to send /start@utilitool_bot setup
+     * to send:
+     *
+     *     /start@utilitool_bot setup
+     *
      * after the bot has been added.
      */
+
     if (
         start.parameter ===
         "setup"
@@ -504,163 +1570,54 @@ async function handleStartCommand(
     return true;
 }
 
-function mainMenu(
-    username,
-    chatType = "private"
-) {
-    const isPrivate =
-        chatType ===
-        "private";
 
-    return {
-        text:
-            `@${username}, what would you like me to do?`,
-
-        reply_markup: {
-            inline_keyboard:
-                isPrivate
-                    ? [
-                        [
-                            {
-                                text:
-                                    "➕ Add to Group",
-                                url:
-                                    "https://t.me/utilitool_bot?startgroup=setup&admin=change_info+delete_messages"
-                            }
-                        ],
-                        [
-                            {
-                                text:
-                                    "📢 Add to Channel",
-                                url:
-                                    "https://t.me/utilitool_bot?startchannel&admin=change_info+post_messages+edit_messages+delete_messages"
-                            }
-                        ]
-                    ]
-                    : [
-                        [
-                            {
-                                text:
-                                    "Change Profile Photo",
-                                callback_data:
-                                    "photo"
-                            }
-                        ],
-                        [
-                            {
-                                text:
-                                    "Bye",
-                                callback_data:
-                                    "bye"
-                            }
-                        ]
-                    ]
-        }
-    };
-}
-
-function byeMenu() {
-    return {
-        text:
-            "Are you sure you want me to leave?",
-        reply_markup: {
-            inline_keyboard: [
-                [
-                    {
-                        text:
-                            "Yes",
-                        callback_data:
-                            "bye_confirm"
-                    },
-                    {
-                        text:
-                            "No",
-                        callback_data:
-                            "bye_cancel"
-                    }
-                ]
-            ]
-        }
-    };
-}
-
-function photoMenu() {
-    return {
-        text:
-            "Reply to the image or image document you want to use with @utilitool_bot.",
-        reply_markup: {
-            inline_keyboard: [
-                [
-                    {
-                        text:
-                            "Cancel",
-                        callback_data:
-                            "cancel_photo"
-                    }
-                ]
-            ]
-        }
-    };
-}
-
-function cropMenu(sessionId) {
-    const cropUrl =
-        `https://t.me/utilitool_bot/main?startapp=${encodeURIComponent(sessionId)}`;
-
-    return {
-        text:
-            "Position the square over the part of the image you want to use, then press Apply.",
-        reply_markup: {
-            inline_keyboard: [
-                [
-                    {
-                        text:
-                            "Open Photo Cropper",
-                        url:
-                            cropUrl
-                    }
-                ],
-                [
-                    {
-                        text:
-                            "Cancel",
-                        callback_data:
-                            `cancel_photo:${sessionId}`
-                    }
-                ]
-            ]
-        }
-    };
-}
+// ============================================================
+// SESSION STORAGE
+// ============================================================
 
 function randomId() {
     return crypto.randomUUID();
 }
 
-async function saveSession(env, id, data) {
+
+async function saveSession(
+    env,
+    id,
+    data
+) {
     await CACHE(env).put(
         `crop:${id}`,
         JSON.stringify(data),
         {
-            expirationTtl: SESSION_TTL
+            expirationTtl:
+                SESSION_TTL
         }
     );
 }
 
-async function getSession(env, id) {
+
+async function getSession(
+    env,
+    id
+) {
     const value =
-        await CACHE(env).get(`crop:${id}`);
+        await CACHE(env).get(
+            `crop:${id}`
+        );
 
     if (!value) {
         return null;
     }
 
     try {
-        return JSON.parse(value);
+        return JSON.parse(
+            value
+        );
     } catch {
         return null;
     }
 }
+
 
 async function deleteSession(
     env,
@@ -671,71 +1628,14 @@ async function deleteSession(
     );
 }
 
-function menuStateKey(chatId) {
-    return `menu:${String(chatId)}`;
-}
 
-async function getMenuState(env, chatId) {
-    const value =
-        await CACHE(env).get(
-            menuStateKey(chatId),
-            "json"
-        );
+// ============================================================
+// IMAGE REPLY HANDLING
+// ============================================================
 
-    return value || null;
-}
-
-async function saveMenuState(
-    env,
-    chatId,
-    messageId,
-    username,
-    userId = null
+function getReplyImage(
+    message
 ) {
-    const existing =
-        await getMenuState(
-            env,
-            chatId
-        );
-
-    await CACHE(env).put(
-        menuStateKey(chatId),
-        JSON.stringify({
-            ...(existing || {}),
-
-            chatId,
-
-            messageId,
-
-            username:
-                username ||
-                existing?.username ||
-                null,
-
-            lastUserId:
-                userId != null
-                    ? Number(userId)
-                    : existing?.lastUserId ||
-                      null,
-
-            lastUsername:
-                username ||
-                existing?.lastUsername ||
-                null
-        })
-    );
-}
-
-async function deleteMenuState(
-    env,
-    chatId
-) {
-    await CACHE(env).delete(
-        menuStateKey(chatId)
-    );
-}
-
-function getReplyImage(message) {
     const reply =
         message.reply_to_message;
 
@@ -744,7 +1644,9 @@ function getReplyImage(message) {
     }
 
     if (
-        Array.isArray(reply.photo) &&
+        Array.isArray(
+            reply.photo
+        ) &&
         reply.photo.length
     ) {
         return reply.photo
@@ -765,295 +1667,51 @@ function getReplyImage(message) {
 
     const mimeType =
         String(
-            document.mime_type || ""
+            document.mime_type ||
+            ""
         ).toLowerCase();
 
     const fileName =
         String(
-            document.file_name || ""
+            document.file_name ||
+            ""
         ).toLowerCase();
 
     const imageExtension =
         /\.(?:jpg|jpeg|png|webp|gif|bmp|tiff|tif|avif)$/i;
 
     if (
-        mimeType.startsWith("image/") ||
-        imageExtension.test(fileName)
+        mimeType.startsWith(
+            "image/"
+        ) ||
+        imageExtension.test(
+            fileName
+        )
     ) {
         return {
             file_id:
                 document.file_id,
 
             file_size:
-                document.file_size || 0
+                document.file_size ||
+                0
         };
     }
 
     return null;
 }
 
-function getUserFromMessage(message) {
+
+function getUserFromMessage(
+    message
+) {
     return message.from || null;
 }
 
-async function validateTelegramInitData(
-    env,
-    initData
-) {
-    if (!initData) {
-        throw new Error(
-            "Missing Telegram initialization data."
-        );
-    }
 
-    const params =
-        new URLSearchParams(
-            initData
-        );
-
-    const receivedHash =
-        params.get("hash");
-
-    if (!receivedHash) {
-        throw new Error(
-            "Missing Telegram initialization hash."
-        );
-    }
-
-    params.delete("hash");
-
-    params.sort();
-
-    const dataCheckString =
-        Array.from(
-            params.entries()
-        )
-            .map(
-                ([key, value]) =>
-                    `${key}=${value}`
-            )
-            .join("\n");
-
-    const encoder =
-        new TextEncoder();
-
-    const token =
-        await BOT_TOKEN(env);
-
-    if (
-        typeof token !== "string" ||
-        !token
-    ) {
-        throw new Error(
-            "Telegram bot token is missing."
-        );
-    }
-
-    /*
-     * Telegram Web App validation:
-     *
-     * secretKey =
-     *     HMAC-SHA256(
-     *         key: "WebAppData",
-     *         message: bot token
-     *     )
-     */
-
-    const secretKeyMaterial =
-        await crypto.subtle.importKey(
-            "raw",
-            encoder.encode(
-                "WebAppData"
-            ),
-            {
-                name: "HMAC",
-                hash: "SHA-256"
-            },
-            false,
-            ["sign"]
-        );
-
-    const secretKey =
-        await crypto.subtle.sign(
-            "HMAC",
-            secretKeyMaterial,
-            encoder.encode(
-                token
-            )
-        );
-
-    /*
-     * calculatedHash =
-     *     HMAC-SHA256(
-     *         key: secretKey,
-     *         message: dataCheckString
-     *     )
-     */
-
-    const validationKey =
-        await crypto.subtle.importKey(
-            "raw",
-            secretKey,
-            {
-                name: "HMAC",
-                hash: "SHA-256"
-            },
-            false,
-            ["sign"]
-        );
-
-    const calculatedHashBuffer =
-        await crypto.subtle.sign(
-            "HMAC",
-            validationKey,
-            encoder.encode(
-                dataCheckString
-            )
-        );
-
-    const calculatedHash =
-        Array.from(
-            new Uint8Array(
-                calculatedHashBuffer
-            )
-        )
-            .map(
-                byte =>
-                    byte
-                        .toString(16)
-                        .padStart(
-                            2,
-                            "0"
-                        )
-            )
-            .join("");
-
-    if (
-        calculatedHash.length !==
-        receivedHash.length
-    ) {
-        throw new Error(
-            "Invalid Telegram initialization data."
-        );
-    }
-
-    let difference = 0;
-
-    for (
-        let i = 0;
-        i < calculatedHash.length;
-        i++
-    ) {
-        difference |=
-            calculatedHash.charCodeAt(i) ^
-            receivedHash.charCodeAt(i);
-    }
-
-    if (difference !== 0) {
-        throw new Error(
-            "Invalid Telegram initialization data."
-        );
-    }
-
-    const authDate =
-        Number(
-            params.get(
-                "auth_date"
-            )
-        );
-
-    if (
-        !Number.isFinite(
-            authDate
-        )
-    ) {
-        throw new Error(
-            "Telegram initialization data has no valid auth date."
-        );
-    }
-
-    if (
-        Math.abs(
-            Date.now() / 1000 -
-            authDate
-        ) > 3600
-    ) {
-        throw new Error(
-            "Telegram initialization data has expired."
-        );
-    }
-
-    let user = null;
-
-    const userData =
-        params.get("user");
-
-    if (userData) {
-        try {
-            user =
-                JSON.parse(
-                    userData
-                );
-        } catch {
-            throw new Error(
-                "Invalid Telegram user data."
-            );
-        }
-    }
-
-    return {
-        user,
-        params
-    };
-}
-
-async function authorizeSession(
-    env,
-    request,
-    session
-) {
-    const initData =
-        getInitData(request);
-
-    const auth =
-        await validateTelegramInitData(
-            env,
-            initData
-        );
-
-    if (!auth.user?.id) {
-        throw new Error(
-            "Telegram user information is missing."
-        );
-    }
-
-    if (
-        session.userId &&
-        Number(session.userId) !==
-            Number(auth.user.id)
-    ) {
-        throw new Error(
-            "This crop session belongs to another Telegram user."
-        );
-    }
-
-    return auth;
-}
-
-function getInitData(request) {
-    return (
-        request.headers.get(
-            "X-Telegram-Init-Data"
-        ) ||
-        request.headers
-            .get("Authorization")
-            ?.replace(
-                /^tma\s+/i,
-                ""
-            ) ||
-        ""
-    );
-}
+// ============================================================
+// PHOTO REPLY
+// ============================================================
 
 async function handlePhotoReply(
     env,
@@ -1066,8 +1724,10 @@ async function handlePhotoReply(
         "handlePhotoReply:",
         JSON.stringify({
             chatId,
+
             messageId:
                 message.message_id,
+
             fromId:
                 message.from?.id
         })
@@ -1085,7 +1745,9 @@ async function handlePhotoReply(
 
     console.log(
         "PHOTO REPLY MENU STATE:",
-        JSON.stringify(menuState)
+        JSON.stringify(
+            menuState
+        )
     );
 
     if (!menuState) {
@@ -1174,31 +1836,31 @@ async function handlePhotoReply(
         sessionId,
         {
             chatId,
-    
+
             chatType:
                 menuState.chatType ||
                 message.chat?.type ||
                 "private",
-    
+
             fileId:
                 photo.file_id,
-    
+
             userId:
                 Number(
                     message.from?.id ||
                     menuState.requesterId
                 ),
-    
+
             username:
                 message.from?.username ||
                 menuState.lastUsername ||
                 menuState.requesterUsername ||
                 null,
-    
+
             firstName:
                 message.from?.first_name ||
                 null,
-    
+
             menuMessageId:
                 menuState.messageId
         }
@@ -1229,17 +1891,30 @@ async function handlePhotoReply(
         );
     }
 
-    const menu =
-        cropMenu(
-            sessionId
+    const context =
+        createMenuContext(
+            env,
+            {
+                chat:
+                    message.chat,
+
+                user:
+                    message.from,
+
+                message,
+
+                state:
+                    menuState,
+
+                data: {
+                    sessionId
+                }
+            }
         );
 
     try {
-        await editMessage(
-            env,
-            chatId,
-            menuState.messageId,
-            menu
+        await context.edit(
+            Menus.crop
         );
 
         console.log(
@@ -1257,8 +1932,10 @@ async function handlePhotoReply(
             "Crop menu edit details:",
             JSON.stringify({
                 chatId,
+
                 messageId:
                     menuState.messageId,
+
                 sessionId
             })
         );
@@ -1266,24 +1943,318 @@ async function handlePhotoReply(
         return;
     }
 
-    await CACHE(env).put(
-        menuStateKey(
-            chatId
-        ),
-        JSON.stringify({
-            ...menuState,
-
+    await updateMenuState(
+        env,
+        chatId,
+        {
             mode:
                 "crop",
 
             sessionId
-        })
+        }
     );
 
     console.log(
         "PHOTO REPLY COMPLETE"
     );
 }
+
+
+// ============================================================
+// TELEGRAM MINI APP AUTHENTICATION
+// ============================================================
+
+async function validateTelegramInitData(
+    env,
+    initData
+) {
+    if (!initData) {
+        throw new Error(
+            "Missing Telegram initialization data."
+        );
+    }
+
+    const params =
+        new URLSearchParams(
+            initData
+        );
+
+    const receivedHash =
+        params.get(
+            "hash"
+        );
+
+    if (!receivedHash) {
+        throw new Error(
+            "Missing Telegram initialization hash."
+        );
+    }
+
+    params.delete(
+        "hash"
+    );
+
+    params.sort();
+
+    const dataCheckString =
+        Array.from(
+            params.entries()
+        )
+            .map(
+                ([key, value]) =>
+                    `${key}=${value}`
+            )
+            .join("\n");
+
+    const encoder =
+        new TextEncoder();
+
+    const token =
+        await BOT_TOKEN(env);
+
+    if (
+        typeof token !== "string" ||
+        !token
+    ) {
+        throw new Error(
+            "Telegram bot token is missing."
+        );
+    }
+
+    /*
+     * Telegram Web App validation:
+     *
+     * secretKey =
+     *     HMAC-SHA256(
+     *         key: "WebAppData",
+     *         message: bot token
+     *     )
+     */
+
+    const secretKeyMaterial =
+        await crypto.subtle.importKey(
+            "raw",
+            encoder.encode(
+                "WebAppData"
+            ),
+            {
+                name:
+                    "HMAC",
+
+                hash:
+                    "SHA-256"
+            },
+            false,
+            [
+                "sign"
+            ]
+        );
+
+    const secretKey =
+        await crypto.subtle.sign(
+            "HMAC",
+            secretKeyMaterial,
+            encoder.encode(
+                token
+            )
+        );
+
+    /*
+     * calculatedHash =
+     *     HMAC-SHA256(
+     *         key: secretKey,
+     *         message: dataCheckString
+     *     )
+     */
+
+    const validationKey =
+        await crypto.subtle.importKey(
+            "raw",
+            secretKey,
+            {
+                name:
+                    "HMAC",
+
+                hash:
+                    "SHA-256"
+            },
+            false,
+            [
+                "sign"
+            ]
+        );
+
+    const calculatedHashBuffer =
+        await crypto.subtle.sign(
+            "HMAC",
+            validationKey,
+            encoder.encode(
+                dataCheckString
+            )
+        );
+
+    const calculatedHash =
+        Array.from(
+            new Uint8Array(
+                calculatedHashBuffer
+            )
+        )
+            .map(
+                byte =>
+                    byte
+                        .toString(16)
+                        .padStart(
+                            2,
+                            "0"
+                        )
+            )
+            .join("");
+
+    if (
+        calculatedHash.length !==
+        receivedHash.length
+    ) {
+        throw new Error(
+            "Invalid Telegram initialization data."
+        );
+    }
+
+    let difference = 0;
+
+    for (
+        let i = 0;
+        i < calculatedHash.length;
+        i++
+    ) {
+        difference |=
+            calculatedHash.charCodeAt(i) ^
+            receivedHash.charCodeAt(i);
+    }
+
+    if (
+        difference !== 0
+    ) {
+        throw new Error(
+            "Invalid Telegram initialization data."
+        );
+    }
+
+    const authDate =
+        Number(
+            params.get(
+                "auth_date"
+            )
+        );
+
+    if (
+        !Number.isFinite(
+            authDate
+        )
+    ) {
+        throw new Error(
+            "Telegram initialization data has no valid auth date."
+        );
+    }
+
+    if (
+        Math.abs(
+            Date.now() / 1000 -
+            authDate
+        ) > 3600
+    ) {
+        throw new Error(
+            "Telegram initialization data has expired."
+        );
+    }
+
+    let user = null;
+
+    const userData =
+        params.get(
+            "user"
+        );
+
+    if (userData) {
+        try {
+            user =
+                JSON.parse(
+                    userData
+                );
+        } catch {
+            throw new Error(
+                "Invalid Telegram user data."
+            );
+        }
+    }
+
+    return {
+        user,
+        params
+    };
+}
+
+
+function getInitData(
+    request
+) {
+    return (
+        request.headers.get(
+            "X-Telegram-Init-Data"
+        ) ||
+
+        request.headers
+            .get(
+                "Authorization"
+            )
+            ?.replace(
+                /^tma\s+/i,
+                ""
+            ) ||
+
+        ""
+    );
+}
+
+
+async function authorizeSession(
+    env,
+    request,
+    session
+) {
+    const initData =
+        getInitData(
+            request
+        );
+
+    const auth =
+        await validateTelegramInitData(
+            env,
+            initData
+        );
+
+    if (!auth.user?.id) {
+        throw new Error(
+            "Telegram user information is missing."
+        );
+    }
+
+    if (
+        session.userId &&
+        Number(session.userId) !==
+            Number(auth.user.id)
+    ) {
+        throw new Error(
+            "This crop session belongs to another Telegram user."
+        );
+    }
+
+    return auth;
+}
+
+
+// ============================================================
+// CROP IMAGE ENDPOINT
+// ============================================================
 
 async function handleCropImage(
     env,
@@ -1308,7 +2279,8 @@ async function handleCropImage(
         return new Response(
             "Missing session.",
             {
-                status: 400
+                status:
+                    400
             }
         );
     }
@@ -1348,7 +2320,8 @@ async function handleCropImage(
         return new Response(
             "Crop session expired.",
             {
-                status: 410
+                status:
+                    410
             }
         );
     }
@@ -1372,7 +2345,8 @@ async function handleCropImage(
         return new Response(
             error.message,
             {
-                status: 403
+                status:
+                    403
             }
         );
     }
@@ -1443,7 +2417,9 @@ async function handleCropImage(
         return new Response(
             response.body,
             {
-                status: 200,
+                status:
+                    200,
+
                 headers
             }
         );
@@ -1456,11 +2432,17 @@ async function handleCropImage(
         return new Response(
             "Unable to retrieve the Telegram image.",
             {
-                status: 502
+                status:
+                    502
             }
         );
     }
 }
+
+
+// ============================================================
+// CROP SUBMIT ENDPOINT
+// ============================================================
 
 async function handleCropSubmit(
     env,
@@ -1475,27 +2457,41 @@ async function handleCropSubmit(
     } catch {
         return new Response(
             "Invalid form data.",
-            { status: 400 }
+            {
+                status:
+                    400
+            }
         );
     }
 
     const sessionId =
         String(
-            form.get("session") || ""
+            form.get(
+                "session"
+            ) ||
+            ""
         );
 
     const initData =
         String(
-            form.get("initData") || ""
+            form.get(
+                "initData"
+            ) ||
+            ""
         );
 
     const photo =
-        form.get("photo");
+        form.get(
+            "photo"
+        );
 
     if (!sessionId) {
         return new Response(
             "Missing session.",
-            { status: 400 }
+            {
+                status:
+                    400
+            }
         );
     }
 
@@ -1506,7 +2502,10 @@ async function handleCropSubmit(
     ) {
         return new Response(
             "Missing cropped photo.",
-            { status: 400 }
+            {
+                status:
+                    400
+            }
         );
     }
 
@@ -1519,7 +2518,10 @@ async function handleCropSubmit(
     if (!session) {
         return new Response(
             "Crop session expired.",
-            { status: 404 }
+            {
+                status:
+                    404
+            }
         );
     }
 
@@ -1534,14 +2536,20 @@ async function handleCropSubmit(
     } catch (error) {
         return new Response(
             error.message,
-            { status: 403 }
+            {
+                status:
+                    403
+            }
         );
     }
 
     if (!auth.user?.id) {
         return new Response(
             "Telegram user information is missing.",
-            { status: 403 }
+            {
+                status:
+                    403
+            }
         );
     }
 
@@ -1552,7 +2560,10 @@ async function handleCropSubmit(
     ) {
         return new Response(
             "This crop session belongs to another Telegram user.",
-            { status: 403 }
+            {
+                status:
+                    403
+            }
         );
     }
 
@@ -1562,7 +2573,10 @@ async function handleCropSubmit(
     ) {
         return new Response(
             "Cropped image is too large.",
-            { status: 413 }
+            {
+                status:
+                    413
+            }
         );
     }
 
@@ -1572,7 +2586,10 @@ async function handleCropSubmit(
     ) {
         return new Response(
             "The cropped image must be JPEG.",
-            { status: 400 }
+            {
+                status:
+                    400
+            }
         );
     }
 
@@ -1582,7 +2599,8 @@ async function handleCropSubmit(
                 await photo.arrayBuffer()
             ],
             {
-                type: "image/jpeg"
+                type:
+                    "image/jpeg"
             }
         );
 
@@ -1608,14 +2626,17 @@ async function handleCropSubmit(
 
         return Response.json(
             {
-                success: false,
+                success:
+                    false,
+
                 error:
                     error instanceof Error
                         ? error.message
                         : String(error)
             },
             {
-                status: 502
+                status:
+                    502
             }
         );
     }
@@ -1642,6 +2663,7 @@ async function handleCropSubmit(
      * Do not make the Mini App wait for Telegram
      * menu cleanup/recreation.
      */
+
     ctx.waitUntil(
         (async () => {
             if (
@@ -1691,9 +2713,15 @@ async function handleCropSubmit(
     );
 
     return Response.json({
-        success: true
+        success:
+            true
     });
 }
+
+
+// ============================================================
+// CROP CANCEL ENDPOINT
+// ============================================================
 
 async function handleCropCancel(
     env,
@@ -1704,7 +2732,8 @@ async function handleCropCancel(
         return new Response(
             "Missing session.",
             {
-                status: 400
+                status:
+                    400
             }
         );
     }
@@ -1719,7 +2748,8 @@ async function handleCropCancel(
         return new Response(
             "Crop session expired.",
             {
-                status: 410
+                status:
+                    410
             }
         );
     }
@@ -1737,7 +2767,8 @@ async function handleCropCancel(
         return new Response(
             error.message,
             {
-                status: 403
+                status:
+                    403
             }
         );
     }
@@ -1766,21 +2797,34 @@ async function handleCropCancel(
         session.menuMessageId
     ) {
         try {
-            await editMessage(
+            await editMenu(
                 env,
-                session.chatId,
-                session.menuMessageId,
-                mainMenu(
-                    displayName,
-                    chatType
-                )
+                {
+                    menu:
+                        "base",
+
+                    chat: {
+                        id:
+                            session.chatId,
+
+                        type:
+                            chatType
+                    },
+
+                    user:
+                        auth.user,
+
+                    state: {
+                        messageId:
+                            session.menuMessageId
+                    }
+                }
             );
 
-            await CACHE(env).put(
-                menuStateKey(
-                    session.chatId
-                ),
-                JSON.stringify({
+            await saveMenuState(
+                env,
+                session.chatId,
+                {
                     chatId:
                         session.chatId,
 
@@ -1789,9 +2833,7 @@ async function handleCropCancel(
 
                     username:
                         username ||
-                        auth.user?.first_name ||
-                        session.firstName ||
-                        null,
+                        displayName,
 
                     lastUserId:
                         Number(
@@ -1802,12 +2844,11 @@ async function handleCropCancel(
                         username ||
                         null,
 
-                    chatType:
-                        chatType,
+                    chatType,
 
                     mode:
                         "base"
-                })
+                }
             );
         } catch (error) {
             console.error(
@@ -1815,11 +2856,10 @@ async function handleCropCancel(
                 error
             );
 
-            await CACHE(env).put(
-                menuStateKey(
-                    session.chatId
-                ),
-                JSON.stringify({
+            await saveMenuState(
+                env,
+                session.chatId,
+                {
                     chatId:
                         session.chatId,
 
@@ -1828,9 +2868,7 @@ async function handleCropCancel(
 
                     username:
                         username ||
-                        auth.user?.first_name ||
-                        session.firstName ||
-                        null,
+                        displayName,
 
                     lastUserId:
                         Number(
@@ -1841,357 +2879,25 @@ async function handleCropCancel(
                         username ||
                         null,
 
-                    chatType:
-                        chatType,
+                    chatType,
 
                     mode:
                         "base"
-                })
+                }
             );
         }
     }
 
     return Response.json({
-        success: true
+        success:
+            true
     });
 }
 
-async function handleBye(
-    env,
-    callback
-) {
-    await answerCallback(
-        env,
-        callback.id
-    );
 
-    const chatId =
-        callback.message.chat.id;
-
-    await sendMessage(
-        env,
-        chatId,
-        "Bye!"
-    );
-
-    await leaveChat(
-        env,
-        chatId
-    );
-}
-
-async function handleCallback(
-    env,
-    callback
-) {
-    const data =
-        callback.data || "";
-
-    const message =
-        callback.message;
-
-    const chatId =
-        message?.chat?.id;
-
-    const messageId =
-        message?.message_id;
-
-    if (!chatId || !messageId) {
-        await telegram(
-            env,
-            "answerCallbackQuery",
-            {
-                callback_query_id:
-                    callback.id
-            }
-        );
-
-        return;
-    }
-
-    const existingState =
-        await getMenuState(
-            env,
-            chatId
-        );
-
-    const username =
-        callback.from?.username ||
-        existingState?.username ||
-        null;
-
-    const userId =
-        Number(
-            callback.from?.id
-        );
-
-    if (data === "photo") {
-        await answerCallback(
-            env,
-            callback.id
-        );
-
-        await CACHE(env).put(
-            menuStateKey(chatId),
-            JSON.stringify({
-                ...(existingState || {}),
-                chatId,
-                messageId,
-                username,
-                lastUserId:
-                    userId,
-                lastUsername:
-                    callback.from?.username ||
-                    existingState?.lastUsername ||
-                    null,
-                requesterId:
-                    userId,
-                requesterUsername:
-                    callback.from?.username ||
-                    null,
-                mode:
-                    "waiting_for_photo"
-            })
-        );
-
-        await editMessage(
-            env,
-            chatId,
-            messageId,
-            photoMenu()
-        );
-
-        return;
-    }
-
-    if (data === "cancel_photo") {
-        await answerCallback(
-            env,
-            callback.id
-        );
-
-        await CACHE(env).put(
-            menuStateKey(chatId),
-            JSON.stringify({
-                chatId,
-                messageId,
-                username,
-                lastUserId:
-                    userId,
-                lastUsername:
-                    callback.from?.username ||
-                    null,
-                mode:
-                    "base"
-            })
-        );
-
-        await editMessage(
-            env,
-            chatId,
-            messageId,
-            mainMenu(
-                username ||
-                "there",
-                existingState?.chatType ||
-                    message?.chat?.type ||
-                    "private"
-            )
-        );
-
-        return;
-    }
-
-    if (
-        data.startsWith(
-            "cancel_photo:"
-        )
-    ) {
-        const sessionId =
-            data.slice(
-                "cancel_photo:".length
-            );
-
-        await answerCallback(
-            env,
-            callback.id
-        );
-
-        const session =
-            await getSession(
-                env,
-                sessionId
-            );
-
-        await deleteSession(
-            env,
-            sessionId
-        );
-
-        const sessionUsername =
-            session?.username ||
-            username ||
-            null;
-
-        await editMessage(
-            env,
-            chatId,
-            messageId,
-            mainMenu(
-                username ||
-                "there",
-                existingState?.chatType ||
-                    message?.chat?.type ||
-                    "private"
-            )
-        );
-
-        await CACHE(env).put(
-            menuStateKey(chatId),
-            JSON.stringify({
-                chatId,
-                messageId,
-                username:
-                    sessionUsername,
-                lastUserId:
-                    userId,
-                lastUsername:
-                    callback.from?.username ||
-                    null,
-                mode:
-                    "base"
-            })
-        );
-
-        return;
-    }
-
-    if (data === "bye") {
-        await answerCallback(
-            env,
-            callback.id
-        );
-
-        await CACHE(env).put(
-            menuStateKey(chatId),
-            JSON.stringify({
-                ...(existingState || {}),
-                chatId,
-                messageId,
-                username,
-                lastUserId:
-                    userId,
-                lastUsername:
-                    callback.from?.username ||
-                    existingState?.lastUsername ||
-                    null,
-                mode:
-                    "confirm_bye"
-            })
-        );
-
-        await editMessage(
-            env,
-            chatId,
-            messageId,
-            byeMenu()
-        );
-
-        return;
-    }
-
-    if (data === "bye_cancel") {
-        await answerCallback(
-            env,
-            callback.id
-        );
-
-        await CACHE(env).put(
-            menuStateKey(chatId),
-            JSON.stringify({
-                ...(existingState || {}),
-                chatId,
-                messageId,
-                username,
-                lastUserId:
-                    userId,
-                lastUsername:
-                    callback.from?.username ||
-                    existingState?.lastUsername ||
-                    null,
-                mode:
-                    "base"
-            })
-        );
-
-        await editMessage(
-            env,
-            chatId,
-            messageId,
-            mainMenu(
-                username ||
-                "there",
-                existingState?.chatType ||
-                    message?.chat?.type ||
-                    "private"
-            )
-        );
-
-        return;
-    }
-
-    if (data === "bye_confirm") {
-        await answerCallback(
-            env,
-            callback.id
-        );
-
-        try {
-            await deleteMessage(
-                env,
-                chatId,
-                messageId
-            );
-        } catch (error) {
-            console.error(
-                "Unable to delete goodbye menu:",
-                error
-            );
-        }
-
-        await deleteMenuState(
-            env,
-            chatId
-        );
-
-        try {
-            await telegram(
-                env,
-                "leaveChat",
-                {
-                    chat_id:
-                        chatId
-                }
-            );
-        } catch (error) {
-            console.error(
-                "leaveChat failed:",
-                error
-            );
-        }
-
-        return;
-    }
-
-    await telegram(
-        env,
-        "answerCallbackQuery",
-        {
-            callback_query_id:
-                callback.id
-        }
-    );
-}
+// ============================================================
+// CHAT MEMBERSHIP
+// ============================================================
 
 async function handleMyChatMember(
     env,
@@ -2211,7 +2917,9 @@ async function handleMyChatMember(
         ![
             "member",
             "administrator"
-        ].includes(newStatus)
+        ].includes(
+            newStatus
+        )
     ) {
         return;
     }
@@ -2234,6 +2942,11 @@ async function handleMyChatMember(
         chat.type
     );
 }
+
+
+// ============================================================
+// MESSAGE HANDLING
+// ============================================================
 
 async function handleMessage(
     env,
@@ -2295,35 +3008,28 @@ async function handleMessage(
 
     /*
      * /start always works in a private DM.
-     * It does not require @utilitool_bot.
      */
+
     if (
-        chat.type === "private" &&
+        chat.type ===
+            "private" &&
         /^\/start(?:@\w+)?(?:\s+.+)?$/i.test(
             text
         )
     ) {
-        const username =
-            message.from?.username ||
-            message.from?.first_name ||
-            "there";
-
-        await showBaseMenu(
+        await handleStartCommand(
             env,
-            chatId,
-            username,
-            message.from?.id ||
-                null,
-            chat.type
+            message
         );
 
         return;
     }
 
     /*
-     * Replies to images still require
+     * Replies to images require
      * the bot to be mentioned.
      */
+
     if (
         message.reply_to_message
     ) {
@@ -2333,11 +3039,15 @@ async function handleMessage(
 
         console.log(
             "BOT MENTIONED:",
-            isBotMentioned(message)
+            isBotMentioned(
+                message
+            )
         );
 
         if (
-            !isBotMentioned(message)
+            !isBotMentioned(
+                message
+            )
         ) {
             return;
         }
@@ -2351,11 +3061,14 @@ async function handleMessage(
     }
 
     /*
-     * Normal menu summons still require
+     * Normal menu summons require
      * @utilitool_bot in groups/channels.
      */
+
     if (
-        !isBotMentioned(message)
+        !isBotMentioned(
+            message
+        )
     ) {
         return;
     }
@@ -2386,6 +3099,11 @@ async function handleMessage(
         chat.type
     );
 }
+
+
+// ============================================================
+// UPDATE HANDLING
+// ============================================================
 
 async function handleUpdate(
     env,
@@ -2434,6 +3152,11 @@ async function handleUpdate(
     }
 }
 
+
+// ============================================================
+// WEBHOOK
+// ============================================================
+
 async function handleWebhook(
     env,
     request
@@ -2446,7 +3169,10 @@ async function handleWebhook(
     } catch {
         return new Response(
             "Invalid update.",
-            { status: 400 }
+            {
+                status:
+                    400
+            }
         );
     }
 
@@ -2469,20 +3195,33 @@ async function handleWebhook(
         await CACHE(env).put(
             "debug:last_error",
             JSON.stringify({
-                time: new Date().toISOString(),
-                error: message,
+                time:
+                    new Date().toISOString(),
+
+                error:
+                    message,
+
                 update
             }),
             {
-                expirationTtl: 600
+                expirationTtl:
+                    600
             }
         );
     }
 
-    return new Response("OK");
+    return new Response(
+        "OK"
+    );
 }
 
+
+// ============================================================
+// WORKER
+// ============================================================
+
 export default {
+
     async fetch(
         request,
         env,
@@ -2493,44 +3232,59 @@ export default {
                 request.url
             );
 
+
+        // ----------------------------------------------------
+        // DEBUG
+        // ----------------------------------------------------
+
         if (
-            url.pathname === "/debug/webhook" &&
-            request.method === "GET"
+            url.pathname ===
+                "/debug/webhook" &&
+            request.method ===
+                "GET"
         ) {
             try {
                 const token =
-                    await BOT_TOKEN(env);
-        
+                    await BOT_TOKEN(
+                        env
+                    );
+
                 const me =
                     await telegram(
                         env,
                         "getMe"
                     );
-        
+
                 return Response.json({
                     tokenType:
                         typeof token,
-        
+
                     tokenLength:
-                        typeof token === "string"
+                        typeof token ===
+                        "string"
                             ? token.length
                             : null,
-        
+
                     tokenFormat:
-                        typeof token === "string"
+                        typeof token ===
+                        "string"
                             ? /^\d+:[A-Za-z0-9_-]+$/.test(
-                                  token
-                              )
+                                token
+                            )
                             : false,
-        
+
                     tokenPrefix:
-                        typeof token === "string"
-                            ? token.slice(0, 10)
+                        typeof token ===
+                        "string"
+                            ? token.slice(
+                                0,
+                                10
+                            )
                             : null,
-        
+
                     botId:
                         me.id,
-        
+
                     botUsername:
                         me.username
                 });
@@ -2543,14 +3297,21 @@ export default {
                                 : String(error)
                     },
                     {
-                        status: 500
+                        status:
+                            500
                     }
                 );
             }
         }
 
+
+        // ----------------------------------------------------
+        // TELEGRAM WEBHOOK
+        // ----------------------------------------------------
+
         if (
-            request.method === "POST" &&
+            request.method ===
+                "POST" &&
             url.pathname ===
                 "/telegram/webhook"
         ) {
@@ -2560,10 +3321,16 @@ export default {
             );
         }
 
+
+        // ----------------------------------------------------
+        // CROP IMAGE
+        // ----------------------------------------------------
+
         if (
             url.pathname ===
                 "/api/crop/image" &&
-            request.method === "GET"
+            request.method ===
+                "GET"
         ) {
             return handleCropImage(
                 env,
@@ -2572,10 +3339,16 @@ export default {
             );
         }
 
+
+        // ----------------------------------------------------
+        // CROP SUBMIT
+        // ----------------------------------------------------
+
         if (
             url.pathname ===
                 "/api/crop/submit" &&
-            request.method === "POST"
+            request.method ===
+                "POST"
         ) {
             return handleCropSubmit(
                 env,
@@ -2584,10 +3357,16 @@ export default {
             );
         }
 
+
+        // ----------------------------------------------------
+        // CROP CANCEL
+        // ----------------------------------------------------
+
         if (
             url.pathname ===
                 "/api/crop/cancel" &&
-            request.method === "POST"
+            request.method ===
+                "POST"
         ) {
             let body;
 
@@ -2597,7 +3376,10 @@ export default {
             } catch {
                 return new Response(
                     "Invalid request.",
-                    { status: 400 }
+                    {
+                        status:
+                            400
+                    }
                 );
             }
 
@@ -2605,22 +3387,34 @@ export default {
                 env,
                 request,
                 String(
-                    body.session || ""
+                    body.session ||
+                    ""
                 )
             );
         }
 
-        if (
-            env.ASSETS
-        ) {
+
+        // ----------------------------------------------------
+        // STATIC ASSETS
+        // ----------------------------------------------------
+
+        if (env.ASSETS) {
             return env.ASSETS.fetch(
                 request
             );
         }
 
+
+        // ----------------------------------------------------
+        // NOT FOUND
+        // ----------------------------------------------------
+
         return new Response(
             "Not found.",
-            { status: 404 }
+            {
+                status:
+                    404
+            }
         );
     }
 };
