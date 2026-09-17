@@ -212,44 +212,6 @@ async function showBaseMenu(
     username,
     userId = null
 ) {
-    const existing =
-        await getMenuState(
-            env,
-            chatId
-        );
-
-    if (existing?.messageId) {
-        try {
-            await deleteMessage(
-                env,
-                chatId,
-                existing.messageId
-            );
-        } catch (error) {
-            console.error(
-                "Unable to delete previous menu:",
-                error
-            );
-        }
-    }
-
-    const message =
-        await createBaseMenu(
-            env,
-            chatId,
-            username,
-            userId
-        );
-
-    return message.message_id;
-}
-
-async function showBaseMenu(
-    env,
-    chatId,
-    username,
-    userId = null
-) {
     let existing = null;
 
     for (let attempt = 0; attempt < 4; attempt++) {
