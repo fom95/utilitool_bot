@@ -136,6 +136,43 @@ body {
         );
 }
 
+#saveOption {
+    width: 100%;
+
+    padding:
+        2px
+        16px
+        6px;
+
+    display: flex;
+
+    align-items: center;
+    justify-content: center;
+
+    gap: 8px;
+
+    font-size: 14px;
+
+    opacity: .85;
+}
+
+#saveOption input {
+    width: 18px;
+    height: 18px;
+
+    margin: 0;
+
+    accent-color:
+        var(
+            --tg-theme-button-color,
+            #2481cc
+        );
+}
+
+#saveOption label {
+    cursor: pointer;
+}
+
 #deleteOption label {
     cursor: pointer;
 }
@@ -324,6 +361,18 @@ button:disabled {
     </label>
 </div>
 
+<div id="saveOption">
+    <input
+        type="checkbox"
+        id="saveProfilePhoto"
+        checked
+    >
+
+    <label for="saveProfilePhoto">
+        Save profile photo to library
+    </label>
+</div>
+
 <div id="buttons">
     <button id="cancel">
         Cancel
@@ -417,6 +466,11 @@ const progressText =
 const deleteNewChatPhoto =
     document.getElementById(
         "deleteNewChatPhoto"
+    );
+
+const saveProfilePhoto =
+    document.getElementById(
+        "saveProfilePhoto"
     );
 
 const applyButton =
@@ -1430,6 +1484,13 @@ applyButton.addEventListener(
             form.append(
                 "deleteNewChatPhoto",
                 deleteNewChatPhoto.checked
+                    ? "1"
+                    : "0"
+            );
+
+            form.append(
+                "saveProfilePhoto",
+                saveProfilePhoto.checked
                     ? "1"
                     : "0"
             );
