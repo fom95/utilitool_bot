@@ -875,10 +875,45 @@ function libraryPhotoUrl(photo) {
         "/api/library/photo?id=" +
         encodeURIComponent(
             photo.id
-        ) +
-        "&_=" +
-        Date.now()
+        )
     );
+}
+
+function libraryPhotoSourceChats(
+    photo
+) {
+    if (
+        Array.isArray(
+            photo.sourceChats
+        )
+    ) {
+        return photo.sourceChats;
+    }
+
+    if (
+        photo.sourceChatId != null
+    ) {
+        return [
+            {
+                id:
+                    photo.sourceChatId,
+
+                type:
+                    photo.sourceChatType ||
+                    null,
+
+                title:
+                    photo.sourceChatTitle ||
+                    null,
+
+                username:
+                    photo.sourceChatUsername ||
+                    null
+            }
+        ];
+    }
+
+    return [];
 }
 
 function renderLibraryFilter() {
@@ -986,15 +1021,53 @@ function getFilteredLibrary() {
             : filter;
 
     return photos.filter(
-        photo =>
-            Array.isArray(
-                photo.sourceChats
-            ) &&
-            photo.sourceChats.some(
+        photo => {
+            const sourceChats =
+                libraryPhotoSourceChats(
+                    photo
+                );
+
+            return sourceChats.some(
                 chat =>
                     String(chat.id) ===
                     String(currentChatId)
-            )
+            );
+        }
+    );
+}
+
+async function loadLibraryPhoto(
+    photo
+) {
+    const response =
+        await fetch(
+            libraryPhotoUrl(
+                photo
+            ),
+            {
+                headers: {
+                    "X-Telegram-Init-Data":
+                        window.Telegram
+                            ?.WebApp
+                            ?.initData ||
+                        ""
+                },
+                cache:
+                    "force-cache"
+            }
+        );
+
+    if (!response.ok) {
+        throw new Error(
+            `Unable to load library photo: ${response.status}`
+        );
+    }
+
+    const blob =
+        await response.blob();
+
+    return URL.createObjectURL(
+        blob
     );
 }
 
@@ -1053,9 +1126,29 @@ function renderLibrary() {
         image.alt =
             "Profile photo";
 
+        image.dataset.photoId =
+            photo.id;
+
         image.src =
-            libraryPhotoUrl(
-                photo
+            "";
+
+        loadLibraryPhoto(
+            photo
+        )
+            .then(
+                url => {
+                    image.src =
+                        url;
+                }
+            )
+            .catch(
+                error => {
+                    console.error(
+                        "Unable to load library thumbnail:",
+                        photo.id,
+                        error
+                    );
+                }
             );
 
         const deleteButton =
@@ -1106,24 +1199,34 @@ function renderLibrary() {
     }
 }
 
-function openLibraryPhoto(
+async function openLibraryPhoto(
     photo
 ) {
     selectedLibraryPhoto =
         photo;
 
-    libraryPreviewImage.src =
-        libraryPhotoUrl(
+    try {
+        const imageUrl =
+            await loadLibraryPhoto(
+                photo
+            );
+
+        libraryPreviewImage.src =
+            imageUrl;
+    } catch (error) {
+        console.error(
+            "Unable to load library preview:",
+            error
+        );
+
+        return;
+    }
+
+    const sourceChats =
+        libraryPhotoSourceChats(
             photo
         );
 
-    const sourceChats =
-        Array.isArray(
-            photo.sourceChats
-        )
-            ? photo.sourceChats
-            : [];
-    
     if (sourceChats.length) {
         libraryPreviewInfo.textContent =
             `From ${sourceChats
