@@ -85,6 +85,22 @@ async function telegram(
     return data.result;
 }
 
+function json(
+    data,
+    status = 200
+) {
+    return new Response(
+        JSON.stringify(data),
+        {
+            status,
+
+            headers: {
+                "Content-Type":
+                    "application/json; charset=utf-8"
+            }
+        }
+    );
+}
 
 async function sendMessage(
     env,
@@ -3900,16 +3916,32 @@ async function handleCropSubmit(
                         session.chatId,
                         session.menuMessageId
                     );
-
+            
                     console.log(
                         "CROP SUBMIT: old menu deleted:",
                         session.menuMessageId
                     );
                 } catch (error) {
-                    console.error(
-                        "Unable to delete old menu after photo change:",
-                        error
-                    );
+                    const message =
+                        error instanceof Error
+                            ? error.message
+                            : String(error);
+            
+                    if (
+                        !/message to delete not found/i.test(
+                            message
+                        )
+                    ) {
+                        console.error(
+                            "Unable to delete old menu after photo change:",
+                            error
+                        );
+                    } else {
+                        console.log(
+                            "CROP SUBMIT: old menu was already gone:",
+                            session.menuMessageId
+                        );
+                    }
                 }
             }
 
