@@ -122,17 +122,40 @@ function isBotMentioned(message) {
         message.caption_entities ||
         [];
 
-    return entities.some(
-        entity =>
-            entity.type === "mention" &&
-            text
-                .slice(
-                    entity.offset,
-                    entity.offset +
-                        entity.length
-                )
-                .toLowerCase() ===
-                "@utilitool_bot"
+    const entityMention =
+        entities.some(
+            entity => {
+                if (
+                    entity.type !==
+                    "mention"
+                ) {
+                    return false;
+                }
+
+                const mention =
+                    text.slice(
+                        entity.offset,
+                        entity.offset +
+                            entity.length
+                    );
+
+                return (
+                    mention.toLowerCase() ===
+                    "@utilitool_bot"
+                );
+            }
+        );
+
+    if (entityMention) {
+        return true;
+    }
+
+    /*
+     * Fallback for cases where Telegram does not
+     * provide the mention entity.
+     */
+    return /@utilitool_bot\b/i.test(
+        text
     );
 }
 
@@ -373,7 +396,7 @@ function mainMenu(username) {
 function photoMenu() {
     return {
         text:
-            "Reply to the image you want to use with /setphoto.",
+            "Reply to the image or image document you want to use with @utilitool_bot.",
         reply_markup: {
             inline_keyboard: [
                 [
@@ -453,7 +476,7 @@ async function deleteSession(
     sessionId
 ) {
     await CACHE(env).delete(
-        `session:${sessionId}`
+        `crop:${sessionId}`
     );
 }
 
@@ -835,18 +858,26 @@ async function handlePhotoReply(
             message.chat.id
         );
 
+    if (!menuState) {
+        return;
+    }
+
     if (
-        !menuState ||
         menuState.mode !==
-            "waiting_for_photo"
+        "waiting_for_photo"
     ) {
         return;
     }
 
     if (
-        !menuState.requesterId ||
-        message.from?.id !==
-            menuState.requesterId
+        !menuState.requesterId
+    ) {
+        return;
+    }
+
+    if (
+        Number(message.from?.id) !==
+        Number(menuState.requesterId)
     ) {
         return;
     }
@@ -910,9 +941,8 @@ async function handlePhotoReply(
     );
 
     /*
-     * The file_id is now safely stored in the
-     * crop session, so the @bot reply itself
-     * is no longer needed.
+     * The file_id is now stored in KV.
+     * The user's @bot message is no longer needed.
      */
     try {
         await deleteMessage(
@@ -944,6 +974,8 @@ async function handlePhotoReply(
             "Unable to edit crop menu:",
             error
         );
+
+        return;
     }
 
     await CACHE(env).put(
@@ -1222,26 +1254,54 @@ async function handleCropSubmit(
             session.chatId,
             `${displayName}, the profile photo has been changed.`
         );
-
-        await sendMessage(
-            env,
-            session.chatId,
+        
+        const menu =
             mainMenu(
                 username ||
                 auth.user.first_name ||
                 session.firstName ||
                 "User"
-            ).text,
-            {
-                reply_markup:
-                    mainMenu(
-                        username ||
-                        auth.user.first_name ||
-                        session.firstName ||
-                        "User"
-                    ).reply_markup
+            );
+        
+        if (
+            session.menuMessageId
+        ) {
+            try {
+                await editMessage(
+                    env,
+                    session.chatId,
+                    session.menuMessageId,
+                    menu
+                );
+        
+                await CACHE(env).put(
+                    menuStateKey(
+                        session.chatId
+                    ),
+                    JSON.stringify({
+                        chatId:
+                            session.chatId,
+        
+                        messageId:
+                            session.menuMessageId,
+        
+                        username:
+                            username ||
+                            auth.user.first_name ||
+                            session.firstName ||
+                            null,
+        
+                        mode:
+                            "base"
+                    })
+                );
+            } catch (error) {
+                console.error(
+                    "Unable to restore base menu after photo change:",
+                    error
+                );
             }
-        );
+        }
 
         return Response.json({
             success: true
@@ -1410,52 +1470,42 @@ async function handleCallback(
     );
 
     if (data === "photo") {
-        await telegram(
-            env,
-            "answerCallbackQuery",
-            {
-                callback_query_id:
-                    callback.id
-            }
-        );
-    
-        await saveMenuState(
-            env,
+    await telegram(
+        env,
+        "answerCallbackQuery",
+        {
+            callback_query_id:
+                callback.id
+        }
+    );
+
+    await CACHE(env).put(
+        menuStateKey(chatId),
+        JSON.stringify({
             chatId,
             messageId,
-            callback.from?.username ||
-                null
-        );
-    
-        const menuState =
-            await getMenuState(
-                env,
-                chatId
-            );
-    
-        await CACHE(env).put(
-            menuStateKey(chatId),
-            JSON.stringify({
-                ...menuState,
-                requesterId:
-                    callback.from.id,
-                requesterUsername:
-                    callback.from?.username ||
-                    null,
-                mode:
-                    "waiting_for_photo"
-            })
-        );
-    
-        await editMessage(
-            env,
-            chatId,
-            messageId,
-            photoMenu()
-        );
-    
-        return;
-    }
+            username:
+                callback.from?.username ||
+                null,
+            requesterId:
+                callback.from.id,
+            requesterUsername:
+                callback.from?.username ||
+                null,
+            mode:
+                "waiting_for_photo"
+        })
+    );
+
+    await editMessage(
+        env,
+        chatId,
+        messageId,
+        photoMenu()
+    );
+
+    return;
+}
 
     if (data === "cancel_photo") {
     await telegram(
@@ -1634,15 +1684,10 @@ async function handleMyChatMember(
         bot.username ||
         "User";
 
-    await sendMessage(
+    await createBaseMenu(
         env,
         chat.id,
-        mainMenu(username).text,
-        {
-            reply_markup:
-                mainMenu(username)
-                    .reply_markup
-        }
+        username
     );
 }
 
@@ -1668,32 +1713,7 @@ async function handleMessage(
         return;
     }
 
-    const text =
-        message.text ||
-        message.caption ||
-        "";
-
-    const entities =
-        message.entities ||
-        message.caption_entities ||
-        [];
-
-    const botMention =
-        entities.some(
-            entity =>
-                entity.type ===
-                    "mention" &&
-                text
-                    .slice(
-                        entity.offset,
-                        entity.offset +
-                            entity.length
-                    )
-                    .toLowerCase() ===
-                    "@utilitool_bot"
-        );
-
-    if (!botMention) {
+    if (!isBotMentioned(message)) {
         return;
     }
 
