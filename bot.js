@@ -1655,6 +1655,95 @@ async function handleStartCommand(
     return false;
 }
 
+async function handleSetArchive(
+    env,
+    message
+) {
+    const chat =
+        message.chat;
+
+    const user =
+        message.from;
+
+    if (
+        !chat?.id ||
+        !user?.id
+    ) {
+        return false;
+    }
+
+    if (
+        chat.type !== "group" &&
+        chat.type !== "supergroup" &&
+        chat.type !== "channel"
+    ) {
+        await sendMessage(
+            env,
+            chat.id,
+            "The archive must be a group, supergroup, or channel."
+        );
+
+        return true;
+    }
+
+    const administrators =
+        await telegram(
+            env,
+            "getChatAdministrators",
+            {
+                chat_id: chat.id
+            }
+        );
+
+    const owner =
+        administrators.find(
+            member =>
+                member?.status ===
+                "creator"
+        );
+
+    if (
+        !owner?.user?.id ||
+        Number(owner.user.id) !==
+            Number(user.id)
+    ) {
+        await sendMessage(
+            env,
+            chat.id,
+            "Only the owner of this chat can make it the profile photo archive."
+        );
+
+        return true;
+    }
+
+    await setProfileArchive(
+        env,
+        user.id,
+        {
+            chatId:
+                chat.id,
+
+            chatType:
+                chat.type,
+
+            title:
+                chat.title ||
+                null,
+
+            updatedAt:
+                Date.now()
+        }
+    );
+
+    await sendMessage(
+        env,
+        chat.id,
+        "✅ This chat is now your Profile Photo Archive."
+    );
+
+    return true;
+}
+
 
 // ============================================================
 // SESSION STORAGE
@@ -2358,21 +2447,44 @@ async function authorizeLibrary(
     const chatId =
         getLibraryChatId(auth);
 
-    const {
-        owner,
-        chat
-    } =
-        await resolveProfileLibraryOwner(
-            env,
-            chatId
-        );
-
-    return {
-        auth,
-        chatId,
-        chat,
-        owner
-    };
+        const {
+            owner,
+            chat
+        } =
+            await resolveProfileLibraryOwner(
+                env,
+                chatId
+            );
+    
+        const member =
+            await telegram(
+                env,
+                "getChatMember",
+                {
+                    chat_id:
+                        chatId,
+    
+                    user_id:
+                        auth.user.id
+                }
+            );
+    
+        if (
+            !member ||
+            member.status === "left" ||
+            member.status === "kicked"
+        ) {
+            throw new Error(
+                "You are not a member of this chat."
+            );
+        }
+    
+        return {
+            auth,
+            chatId,
+            chat,
+            owner
+        };
 }
 
 
@@ -2621,109 +2733,7 @@ async function handleCropImage(
     }
 }
 
-async function handleLibrary(
-    env,
-    request
-) {
-    const {
-        chatId,
-        chat,
-        owner
-    } =
-        await authorizeLibrary(
-            env,
-            request
-        );
-
-    const library =
-        await getProfileLibrary(
-            env,
-            owner.id
-        );
-
-    const chats =
-        await getProfileOwnerChats(
-            env,
-            owner.id
-        );
-
-    return json({
-        success: true,
-
-        currentChat: {
-            id:
-                chat.id,
-
-            type:
-                chat.type ||
-                null,
-
-            title:
-                chat.title ||
-                chat.username ||
-                String(chat.id),
-
-            username:
-                chat.username ||
-                null
-        },
-
-        owner: {
-            id:
-                owner.id,
-
-            username:
-                owner.username ||
-                null,
-
-            firstName:
-                owner.first_name ||
-                null,
-
-            lastName:
-                owner.last_name ||
-                null
-        },
-
-        chats,
-
-        photos:
-            library.map(
-                photo => ({
-                    id:
-                        photo.id,
-
-                    fileId:
-                        photo.fileId,
-
-                    thumbFileId:
-                        photo.thumbFileId ||
-                        photo.fileId,
-
-                    width:
-                        photo.width,
-
-                    height:
-                        photo.height,
-
-                    fileSize:
-                        photo.fileSize,
-
-                    sourceChatId:
-                        photo.sourceChatId,
-
-                    sourceChatTitle:
-                        photo.sourceChatTitle,
-
-                    sourceChatUsername:
-                        photo.sourceChatUsername,
-
-                    createdAt:
-                        photo.createdAt
-                })
-            )
-    });
-}
+ync function handleLibrary(
 
 async function handleLibraryPhoto(
     env,
@@ -2778,17 +2788,22 @@ async function handleLibraryPhoto(
         );
     }
 
-    const blob =
+    const {
+        response
+    } =
         await downloadTelegramFile(
             env,
             photo.fileId
         );
 
     return new Response(
-        blob,
+        response.body,
         {
             headers: {
                 "Content-Type":
+                    response.headers.get(
+                        "Content-Type"
+                    ) ||
                     "image/jpeg",
 
                 "Cache-Control":
@@ -2804,23 +2819,22 @@ async function handleLibraryApply(
 ) {
     const {
         chatId,
-        owner
+        owner,
+        auth
     } =
         await authorizeLibrary(
             env,
             request
         );
 
-    const form =
-        await request.formData();
+    const data =
+        await request.json();
 
     const photoId =
-        form.get("id");
+        data?.id;
 
     const deleteNewChatPhoto =
-        form.get(
-            "deleteNewChatPhoto"
-        ) !== "0";
+        data?.deleteNewChatPhoto !== false;
 
     if (!photoId) {
         return json(
@@ -2857,27 +2871,21 @@ async function handleLibraryApply(
         );
     }
 
-    const blob =
+    const {
+        response
+    } =
         await downloadTelegramFile(
             env,
             photo.fileId
         );
 
-    if (!blob) {
-        return json(
-            {
-                success: false,
-                error:
-                    "Unable to download library photo."
-            },
-            500
-        );
-    }
+    const blob =
+        await response.blob();
 
     await setPendingPhotoDelete(
         env,
         chatId,
-        owner.id,
+        auth.user.id,
         deleteNewChatPhoto,
         false
     );
@@ -2905,11 +2913,11 @@ async function handleLibraryDelete(
             request
         );
 
-    const form =
-        await request.formData();
+    const data =
+        await request.json();
 
     const photoId =
-        form.get("id");
+        data?.id;
 
     if (!photoId) {
         return json(
@@ -2922,16 +2930,63 @@ async function handleLibraryDelete(
         );
     }
 
-    const deleted =
-        await deleteProfileLibraryPhoto(
+    const library =
+        await getProfileLibrary(
             env,
-            owner.id,
-            photoId
+            owner.id
         );
 
+    const photo =
+        library.find(
+            item =>
+                String(item.id) ===
+                String(photoId)
+        );
+
+    if (!photo) {
+        return json(
+            {
+                success: false,
+                error:
+                    "Photo not found."
+            },
+            404
+        );
+    }
+
+    if (
+        photo.archiveChatId &&
+        photo.archiveMessageId
+    ) {
+        try {
+            await deleteMessage(
+                env,
+                photo.archiveChatId,
+                photo.archiveMessageId
+            );
+        } catch (error) {
+            console.error(
+                "Unable to delete archive message:",
+                error
+            );
+        }
+    }
+
+    const updated =
+        library.filter(
+            item =>
+                String(item.id) !==
+                String(photoId)
+        );
+
+    await saveProfileLibrary(
+        env,
+        owner.id,
+        updated
+    );
+
     return json({
-        success:
-            deleted
+        success: true
     });
 }
 
@@ -2991,6 +3046,33 @@ function profileOwnerLibraryKey(ownerId) {
 
 function profileOwnerChatsKey(ownerId) {
     return `profileOwnerChats:${String(ownerId)}`;
+}
+
+function profileArchiveKey(ownerId) {
+    return `profileArchive:${String(ownerId)}`;
+}
+
+async function getProfileArchive(
+    env,
+    ownerId
+) {
+    return await CACHE(env).get(
+        profileArchiveKey(ownerId),
+        "json"
+    );
+}
+
+async function setProfileArchive(
+    env,
+    ownerId,
+    archive
+) {
+    await CACHE(env).put(
+        profileArchiveKey(ownerId),
+        JSON.stringify(archive)
+    );
+
+    return archive;
 }
 
 async function getProfileLibrary(
@@ -3183,8 +3265,24 @@ async function addProfileLibraryPhoto(
     if (
         !photo ||
         !Array.isArray(photo) ||
-        !photo.length
+        !photo.length ||
+        !sourceChat?.id
     ) {
+        return null;
+    }
+
+    const archive =
+        await getProfileArchive(
+            env,
+            ownerId
+        );
+
+    if (!archive?.chatId) {
+        console.warn(
+            "No profile photo archive configured for owner:",
+            ownerId
+        );
+
         return null;
     }
 
@@ -3215,68 +3313,115 @@ async function addProfileLibraryPhoto(
         return null;
     }
 
-    const uniqueId =
-        largest.file_unique_id ||
-        largest.file_id;
-
     const duplicate =
-        library.some(
+        library.find(
             item =>
-                (
-                    largest.file_unique_id &&
-                    item.fileUniqueId ===
-                        largest.file_unique_id
-                ) ||
-                item.fileId ===
-                    largest.file_id
+                String(
+                    item.sourceChatId
+                ) ===
+                    String(
+                        sourceChat.id
+                    ) &&
+                largest.file_unique_id &&
+                item.fileUniqueId ===
+                    largest.file_unique_id
         );
 
     if (duplicate) {
-        return null;
+        return duplicate;
     }
+
+    const caption =
+        `Channel ID: ${String(sourceChat.id)}`;
+
+    const archiveMessage =
+        await telegram(
+            env,
+            "sendPhoto",
+            {
+                chat_id:
+                    archive.chatId,
+
+                photo:
+                    largest.file_id,
+
+                caption
+            }
+        );
+
+    if (!archiveMessage?.message_id) {
+        throw new Error(
+            "Archive photo was sent but Telegram returned no message ID."
+        );
+    }
+
+    const archivedPhotos =
+        archiveMessage.photo;
+
+    const archivedLargest =
+        Array.isArray(archivedPhotos)
+            ? archivedPhotos
+                .slice()
+                .sort(
+                    (a, b) =>
+                        (a.file_size || 0) -
+                        (b.file_size || 0)
+                )
+                .at(-1)
+            : null;
 
     const entry = {
         id:
             crypto.randomUUID(),
 
+        archiveMessageId:
+            archiveMessage.message_id,
+
+        archiveChatId:
+            archive.chatId,
+
         fileId:
+            archivedLargest?.file_id ||
             largest.file_id,
 
         thumbFileId:
+            archivedPhotos?.[0]?.file_id ||
             thumbnail?.file_id ||
             largest.file_id,
 
         fileUniqueId:
+            archivedLargest?.file_unique_id ||
             largest.file_unique_id ||
             null,
 
         width:
+            archivedLargest?.width ||
             largest.width ||
             null,
 
         height:
+            archivedLargest?.height ||
             largest.height ||
             null,
 
         fileSize:
+            archivedLargest?.file_size ||
             largest.file_size ||
             null,
 
         sourceChatId:
-            sourceChat?.id ||
-            null,
+            sourceChat.id,
 
         sourceChatType:
-            sourceChat?.type ||
+            sourceChat.type ||
             null,
 
         sourceChatTitle:
-            sourceChat?.title ||
-            sourceChat?.username ||
+            sourceChat.title ||
             null,
 
         sourceChatUsername:
-            sourceChat?.username ||
+            sourceChat.username ||
             null,
 
         createdAt:
@@ -3941,6 +4086,24 @@ async function handleMessage(
             message.text ||
             ""
         ).trim();
+
+    /*
+     * /setarchive configures the real Telegram
+     * chat used as this owner's profile-photo archive.
+     */
+
+    if (
+        /^\/setarchive(?:@\w+)?$/i.test(
+            text
+        )
+    ) {
+        await handleSetArchive(
+            env,
+            message
+        );
+
+        return;
+    }
 
     /*
      * /start always works in a private DM.
