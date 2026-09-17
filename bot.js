@@ -1401,67 +1401,67 @@ async function handleCropSubmit(
             null;
 
         const displayName =
-            username
-                ? `@${username}`
-                : (
-                    auth.user.first_name ||
-                    session.firstName ||
-                    "User"
-                );
+            username ||
+            auth.user.first_name ||
+            session.firstName ||
+            "User";
 
-        await sendMessage(
-            env,
-            session.chatId,
-            `${displayName}, the profile photo has been changed.`
-        );
-        
-        const menu =
-            mainMenu(
-                username ||
-                auth.user.first_name ||
-                session.firstName ||
-                "User"
-            );
-        
         if (
             session.menuMessageId
         ) {
             try {
-                await editMessage(
+                await deleteMessage(
                     env,
                     session.chatId,
-                    session.menuMessageId,
-                    menu
-                );
-        
-                await CACHE(env).put(
-                    menuStateKey(
-                        session.chatId
-                    ),
-                    JSON.stringify({
-                        chatId:
-                            session.chatId,
-        
-                        messageId:
-                            session.menuMessageId,
-        
-                        username:
-                            username ||
-                            auth.user.first_name ||
-                            session.firstName ||
-                            null,
-        
-                        mode:
-                            "base"
-                    })
+                    session.menuMessageId
                 );
             } catch (error) {
                 console.error(
-                    "Unable to restore base menu after photo change:",
+                    "Unable to delete old menu after photo change:",
                     error
                 );
             }
         }
+
+        const newMenu =
+            await sendMessage(
+                env,
+                session.chatId,
+                mainMenu(
+                    displayName
+                )
+            );
+
+        const newMessageId =
+            newMenu?.message_id ||
+            null;
+
+        await CACHE(env).put(
+            menuStateKey(
+                session.chatId
+            ),
+            JSON.stringify({
+                chatId:
+                    session.chatId,
+
+                messageId:
+                    newMessageId,
+
+                username:
+                    username,
+
+                lastUserId:
+                    Number(
+                        auth.user.id
+                    ),
+
+                lastUsername:
+                    username,
+
+                mode:
+                    "base"
+            })
+        );
 
         return Response.json({
             success: true
