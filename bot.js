@@ -3014,6 +3014,12 @@ async function handleMessage(
                 ) &&
                 message.reply_to_message.photo.length > 0,
 
+            replyHasNewChatPhoto:
+                Array.isArray(
+                    message.reply_to_message?.new_chat_photo
+                ) &&
+                message.reply_to_message.new_chat_photo.length > 0,
+
             replyHasDocument:
                 !!message.reply_to_message?.document
         })
