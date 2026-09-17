@@ -469,6 +469,22 @@ function setProgress(
         `${percent}%`;
 }
 
+function hideLoadingProgress() {
+    progressBar.style.display =
+        "none";
+
+    progressText.style.display =
+        "none";
+}
+
+function showLoadingProgress() {
+    progressBar.style.display =
+        "";
+
+    progressText.style.display =
+        "";
+}
+
 function resizeCanvas() {
     const rect =
         cropArea.getBoundingClientRect();
@@ -988,6 +1004,8 @@ canvas.addEventListener(
 );
 
 async function loadImage() {
+    showLoadingProgress();
+
     setStatus(
         "Loading image…"
     );
@@ -1151,6 +1169,8 @@ async function loadImage() {
 
     draw();
 
+    hideLoadingProgress();
+
     loading.classList.add(
         "hidden"
     );
@@ -1230,6 +1250,8 @@ applyButton.addEventListener(
         loading.classList.remove(
             "hidden"
         );
+
+        hideLoadingProgress();
 
         setStatus(
             "Creating profile photo…"
