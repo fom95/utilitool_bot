@@ -189,7 +189,8 @@ async function createBaseMenu(
 async function showBaseMenu(
     env,
     chatId,
-    username
+    username,
+    userId = null
 ) {
     const existing =
         await getMenuState(
@@ -199,27 +200,15 @@ async function showBaseMenu(
 
     if (existing?.messageId) {
         try {
-            await editMessage(
+            await deleteMessage(
                 env,
                 chatId,
-                existing.messageId,
-                mainMenu(
-                    username || "there"
-                )
+                existing.messageId
             );
-
-            await saveMenuState(
-                env,
-                chatId,
-                existing.messageId,
-                username
-            );
-
-            return existing.messageId;
-        } catch {
-            await deleteMenuState(
-                env,
-                chatId
+        } catch (error) {
+            console.error(
+                "Unable to delete existing menu:",
+                error
             );
         }
     }
@@ -228,8 +217,16 @@ async function showBaseMenu(
         await createBaseMenu(
             env,
             chatId,
-            username
+            username || "there"
         );
+
+    await saveMenuState(
+        env,
+        chatId,
+        message.message_id,
+        username,
+        userId
+    );
 
     return message.message_id;
 }
@@ -2023,10 +2020,6 @@ async function handleMessage(
         })
     );
 
-    /*
-     * A reply is always handled before normal
-     * @bot messages.
-     */
     if (
         message.reply_to_message
     ) {
@@ -2053,13 +2046,30 @@ async function handleMessage(
         return;
     }
 
-    /*
-     * Normal @utilitool_bot message.
-     */
     if (
         !isBotMentioned(message)
     ) {
         return;
+    }
+
+    const chatId =
+        message.chat?.id;
+
+    if (!chatId) {
+        return;
+    }
+
+    try {
+        await deleteMessage(
+            env,
+            chatId,
+            message.message_id
+        );
+    } catch (error) {
+        console.error(
+            "Unable to delete menu summon message:",
+            error
+        );
     }
 
     const username =
@@ -2068,8 +2078,9 @@ async function handleMessage(
 
     await showBaseMenu(
         env,
-        message.chat.id,
-        username
+        chatId,
+        username,
+        message.from?.id || null
     );
 }
 
