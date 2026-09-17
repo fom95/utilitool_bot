@@ -167,6 +167,37 @@ async function deleteMessage(
     );
 }
 
+async function editMenuMessage(
+    env,
+    chatId,
+    messageId,
+    menu,
+    context = {}
+) {
+    const rendered =
+        getMenu(
+            menu,
+            {
+                ...context,
+
+                env,
+
+                chatId,
+
+                chatType:
+                    context.chatType ||
+                    "private"
+            }
+        );
+
+    return editMessage(
+        env,
+        chatId,
+        messageId,
+        rendered
+    );
+}
+
 
 async function answerCallback(
     env,
@@ -3907,62 +3938,32 @@ async function handleCropSubmit(
 
     ctx.waitUntil(
         (async () => {
-            if (
-                session.menuMessageId
-            ) {
-                try {
-                    await deleteMessage(
-                        env,
-                        session.chatId,
-                        session.menuMessageId
-                    );
-            
-                    console.log(
-                        "CROP SUBMIT: old menu deleted:",
-                        session.menuMessageId
-                    );
-                } catch (error) {
-                    const message =
-                        error instanceof Error
-                            ? error.message
-                            : String(error);
-            
-                    if (
-                        !/message to delete not found/i.test(
-                            message
-                        )
-                    ) {
-                        console.error(
-                            "Unable to delete old menu after photo change:",
-                            error
-                        );
-                    } else {
-                        console.log(
-                            "CROP SUBMIT: old menu was already gone:",
-                            session.menuMessageId
-                        );
-                    }
-                }
+            if (!session.menuMessageId) {
+                return;
             }
-
+    
             try {
-                const newMenu =
-                    await createBaseMenu(
-                        env,
-                        session.chatId,
-                        displayName,
-                        auth.user.id,
-                        session.chatType ||
-                            "private"
-                    );
-
+                await editMenuMessage(
+                    env,
+                    session.chatId,
+                    session.menuMessageId,
+                    "base",
+                    {
+                        user:
+                            auth.user,
+    
+                        username:
+                            displayName
+                    }
+                );
+    
                 console.log(
-                    "CROP SUBMIT: new menu created:",
-                    newMenu.message_id
+                    "CROP SUBMIT: menu changed to base:",
+                    session.menuMessageId
                 );
             } catch (error) {
                 console.error(
-                    "Unable to create new base menu after photo change:",
+                    "Unable to change menu to base after photo change:",
                     error
                 );
             }
