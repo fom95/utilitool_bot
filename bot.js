@@ -956,6 +956,16 @@ const Menus = {
 
                         [
                             Button(
+                                "🖼️ Profile Photo Library",
+                                {
+                                    action:
+                                        "library"
+                                }
+                            )
+                        ],
+
+                        [
+                            Button(
                                 "Bye",
                                 {
                                     action:
@@ -965,6 +975,36 @@ const Menus = {
                         ]
                     ];
                 }
+        }),
+
+
+    // --------------------------------------------------------
+    // PROFILE PHOTO LIBRARY
+    // --------------------------------------------------------
+
+    library:
+        Menu({
+            text:
+                "Choose a saved profile photo to use for this chat.",
+
+            buttons:
+                ctx => [
+                    Button(
+                        "🖼️ Open Photo Library",
+                        {
+                            url:
+                                "https://t.me/utilitool_bot/main?startapp=library"
+                        }
+                    ),
+
+                    Button(
+                        "Cancel",
+                        {
+                            action:
+                                "library_cancel"
+                        }
+                    )
+                ]
         }),
 
 
@@ -1114,6 +1154,64 @@ const Actions = {
 
             await ctx.edit(
                 "photo"
+            );
+        },
+
+
+    // --------------------------------------------------------
+    // OPEN PROFILE PHOTO LIBRARY
+    // --------------------------------------------------------
+
+    library:
+        async ctx => {
+            await ctx.setState({
+                username:
+                    ctx.username,
+
+                lastUserId:
+                    Number(
+                        ctx.userId
+                    ),
+
+                lastUsername:
+                    ctx.user?.username ||
+                    null,
+
+                mode:
+                    "library"
+            });
+
+            await ctx.edit(
+                "library"
+            );
+        },
+
+
+    // --------------------------------------------------------
+    // CANCEL PROFILE PHOTO LIBRARY
+    // --------------------------------------------------------
+
+    library_cancel:
+        async ctx => {
+            await ctx.setState({
+                username:
+                    ctx.username,
+
+                lastUserId:
+                    Number(
+                        ctx.userId
+                    ),
+
+                lastUsername:
+                    ctx.user?.username ||
+                    null,
+
+                mode:
+                    "base"
+            });
+
+            await ctx.edit(
+                "base"
             );
         },
 
