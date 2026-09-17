@@ -494,7 +494,8 @@ async function saveMenuState(
     env,
     chatId,
     messageId,
-    username
+    username,
+    userId = null
 ) {
     const existing =
         await getMenuState(
@@ -514,6 +515,17 @@ async function saveMenuState(
             username:
                 username ||
                 existing?.username ||
+                null,
+
+            lastUserId:
+                userId != null
+                    ? Number(userId)
+                    : existing?.lastUserId ||
+                      null,
+
+            lastUsername:
+                username ||
+                existing?.lastUsername ||
                 null
         })
     );
@@ -916,15 +928,16 @@ async function handlePhotoReply(
     }
 
     if (
-        Number(message.from?.id) !==
-        Number(menuState.requesterId)
+        message.from?.id != null &&
+        Number(message.from.id) !==
+            Number(menuState.requesterId)
     ) {
         console.log(
             "PHOTO REPLY STOP: requester mismatch:",
-            message.from?.id,
+            message.from.id,
             menuState.requesterId
         );
-
+    
         return;
     }
 
@@ -979,10 +992,15 @@ async function handlePhotoReply(
                 photo.file_id,
 
             userId:
-                message.from.id,
+                Number(
+                    message.from?.id ||
+                    menuState.requesterId
+                ),
 
             username:
                 message.from?.username ||
+                menuState.lastUsername ||
+                menuState.requesterUsername ||
                 null,
 
             firstName:
@@ -1531,12 +1549,34 @@ async function handleCallback(
     /*
      * This callback message is now the active menu.
      */
-    await saveMenuState(
-        env,
-        chatId,
-        messageId,
-        callback.from?.username ||
-            null
+    const existingState =
+        await getMenuState(
+            env,
+            chatId
+        );
+    
+    await CACHE(env).put(
+        menuStateKey(chatId),
+        JSON.stringify({
+            ...(existingState || {}),
+    
+            chatId,
+    
+            messageId,
+    
+            username:
+                callback.from?.username ||
+                existingState?.username ||
+                null,
+    
+            lastUserId:
+                Number(callback.from.id),
+    
+            lastUsername:
+                callback.from?.username ||
+                existingState?.lastUsername ||
+                null
+        })
     );
 
     if (data === "photo") {
@@ -1548,16 +1588,27 @@ async function handleCallback(
         await CACHE(env).put(
             menuStateKey(chatId),
             JSON.stringify({
+                ...(existingState || {}),
+    
                 chatId,
     
                 messageId,
     
                 username:
                     callback.from?.username ||
+                    existingState?.username ||
+                    null,
+    
+                lastUserId:
+                    Number(callback.from.id),
+    
+                lastUsername:
+                    callback.from?.username ||
+                    existingState?.lastUsername ||
                     null,
     
                 requesterId:
-                    callback.from.id,
+                    Number(callback.from.id),
     
                 requesterUsername:
                     callback.from?.username ||
