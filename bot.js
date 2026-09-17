@@ -1161,14 +1161,20 @@ async function handleWebhook(
                 ? error.message
                 : String(error);
 
-        return new Response(
-            `Telegram update error: ${message}`,
+        console.error(
+            "Telegram update error:",
+            message
+        );
+
+        await CACHE(env).put(
+            "debug:last_error",
+            JSON.stringify({
+                time: new Date().toISOString(),
+                error: message,
+                update
+            }),
             {
-                status: 500,
-                headers: {
-                    "Content-Type":
-                        "text/plain"
-                }
+                expirationTtl: 600
             }
         );
     }
