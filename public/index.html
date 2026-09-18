@@ -592,6 +592,26 @@ button:disabled {
             #000000
         );
 }
+
+#apply,#libraryApply{
+position:relative;
+overflow:hidden;
+}
+
+#apply.photoLocked::after,
+#libraryApply.photoLocked::after{
+content:attr(data-lock-text);
+position:absolute;
+inset:0;
+display:flex;
+align-items:center;
+justify-content:center;
+background:var(--tg-theme-secondary-bg-color,#eeeeee);
+color:var(--tg-theme-text-color,#000000);
+border-radius:inherit;
+font-size:16px;
+font-weight:600;
+}
 </style>
 </head>
 
@@ -815,6 +835,23 @@ function showLoading(text) {
     );
 }
 
+function setPhotoButtonLock(button, locked, remainingMs) {
+    if (!locked || remainingMs <= 0) {
+        button.classList.remove("photoLocked");
+        button.removeAttribute("data-lock-text");
+        button.disabled = false;
+        return;
+    }
+
+    const seconds =
+        Math.ceil(remainingMs / 1000);
+
+    button.classList.add("photoLocked");
+    button.dataset.lockText =
+        `Please wait ${seconds}s`;
+    button.disabled = true;
+}
+
 /* =========================
    LIBRARY
    ========================= */
@@ -869,6 +906,61 @@ let libraryData =
 
 let selectedLibraryPhoto =
     null;
+
+let libraryLockTimer = null;
+
+async function updateLibraryPhotoLock() {
+    try {
+        const response = await fetch(
+            "/api/library/status",
+            {
+                headers: {
+                    "X-Telegram-Init-Data":
+                        tg.initData
+                },
+                cache: "no-store"
+            }
+        );
+
+        const result =
+            await response.json().catch(
+                () => ({})
+            );
+
+        if (
+            !response.ok ||
+            !result.success
+        ) {
+            return;
+        }
+
+        setPhotoButtonLock(
+            libraryApply,
+            !!result.locked,
+            Number(result.remainingMs || 0)
+        );
+
+        if (result.locked) {
+            scheduleLibraryLockUpdate();
+        }
+    } catch (error) {
+        console.error(
+            "Unable to check photo lock:",
+            error
+        );
+    }
+}
+
+function scheduleLibraryLockUpdate() {
+    if (libraryLockTimer) {
+        clearTimeout(libraryLockTimer);
+    }
+
+    libraryLockTimer =
+        setTimeout(async () => {
+            await updateLibraryPhotoLock();
+        }, 1000);
+}
 
 function libraryPhotoUrl(photo) {
     return (
@@ -1353,14 +1445,15 @@ libraryClose.addEventListener(
 libraryApply.addEventListener(
     "click",
     async () => {
-        if (
-            !selectedLibraryPhoto
-        ) {
+        if (!selectedLibraryPhoto) {
             return;
         }
 
-        libraryApply.disabled =
-            true;
+        if (libraryApply.disabled) {
+            return;
+        }
+
+        libraryApply.disabled = true;
 
         showLoading(
             "Changing profile photo…"
@@ -1372,36 +1465,45 @@ libraryApply.addEventListener(
                     "/api/library/apply",
                     {
                         method: "POST",
-
                         headers: {
                             "Content-Type":
                                 "application/json",
-
                             "X-Telegram-Init-Data":
                                 tg.initData
                         },
-
-                        body:
-                            JSON.stringify({
-                                id:
-                                    selectedLibraryPhoto.id,
-
-                                deleteNewChatPhoto:
-                                    "1"
-                            })
+                        body: JSON.stringify({
+                            id:
+                                selectedLibraryPhoto.id,
+                            deleteNewChatPhoto:
+                                "1"
+                        })
                     }
                 );
 
             const result =
-                await response.json()
-                    .catch(
-                        () => ({})
-                    );
+                await response.json().catch(
+                    () => ({})
+                );
 
             if (
                 !response.ok ||
                 !result.success
             ) {
+                if (
+                    result.locked &&
+                    result.remainingMs
+                ) {
+                    setPhotoButtonLock(
+                        libraryApply,
+                        true,
+                        Number(
+                            result.remainingMs
+                        )
+                    );
+
+                    scheduleLibraryLockUpdate();
+                }
+
                 throw new Error(
                     result.error ||
                     "Unable to change profile photo."
@@ -1417,14 +1519,15 @@ libraryApply.addEventListener(
                 500
             );
         } catch (error) {
-            console.error(
-                error
-            );
+            console.error(error);
 
             hideLoading();
 
-            libraryApply.disabled =
-                false;
+            if (!libraryApply.classList.contains(
+                "photoLocked"
+            )) {
+                libraryApply.disabled = false;
+            }
 
             tg.showAlert(
                 error.message ||
@@ -1552,6 +1655,62 @@ const cancelButton =
     document.getElementById(
         "cancel"
     );
+
+let cropLockTimer = null;
+
+async function updateCropPhotoLock() {
+    try {
+        const response =
+            await fetch(
+                `/api/crop/status?session=${encodeURIComponent(session)}`,
+                {
+                    headers: {
+                        "X-Telegram-Init-Data":
+                            tg.initData
+                    },
+                    cache: "no-store"
+                }
+            );
+
+        const result =
+            await response.json().catch(
+                () => ({})
+            );
+
+        if (
+            !response.ok ||
+            !result.success
+        ) {
+            return;
+        }
+
+        setPhotoButtonLock(
+            applyButton,
+            !!result.locked,
+            Number(result.remainingMs || 0)
+        );
+
+        if (result.locked) {
+            scheduleCropLockUpdate();
+        }
+    } catch (error) {
+        console.error(
+            "Unable to check photo lock:",
+            error
+        );
+    }
+}
+
+function scheduleCropLockUpdate() {
+    if (cropLockTimer) {
+        clearTimeout(cropLockTimer);
+    }
+
+    cropLockTimer =
+        setTimeout(async () => {
+            await updateCropPhotoLock();
+        }, 1000);
+}
 
 let image =
     new Image();
@@ -2611,6 +2770,7 @@ applyButton.addEventListener(
 
 if (libraryMode) {
     loadLibrary();
+    updateLibraryPhotoLock();
 } else {
     if (!session) {
         setStatus(
@@ -2626,19 +2786,17 @@ if (libraryMode) {
         "hidden"
     );
 
-    loadImage()
-        .catch(error => {
-            console.error(
-                error
-            );
+    updateCropPhotoLock();
 
-            setStatus(
-                error.message ||
-                "Unable to load image."
-            );
-        });
+    loadImage().catch(error => {
+        console.error(error);
+
+        setStatus(
+            error.message ||
+            "Unable to load image."
+        );
+    });
 }
 </script>
-
 </body>
 </html>
