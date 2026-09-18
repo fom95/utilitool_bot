@@ -3065,74 +3065,63 @@ async function handleLibraryPhoto(
     );
 }
 
-async function handleLibraryApply(
-    env,
-    request
-) {
+async function handleLibraryApply(env, request) {
     let operation = null;
+    let lock = null;
 
     try {
         const {
             chatId,
             owner,
             auth
-        } =
-            await authorizeLibrary(
-                env,
-                request
-            );
+        } = await authorizeLibrary(env, request);
 
-        const data =
-            await request.json();
+        const existingLock =
+            await getPhotoChangeLock(env, chatId);
 
-        const photoId =
-            data?.id;
+        if (existingLock) {
+            return json({
+                success: false,
+                locked: true,
+                remainingMs: existingLock.remainingMs,
+                lockedUntil: existingLock.lockedUntil,
+                error:
+                    `Please wait ${Math.ceil(existingLock.remainingMs / 1000)} seconds before changing the profile photo again.`
+            }, 429);
+        }
 
+        const body = await request.json();
+        const id = body?.id;
         const deleteNewChatPhoto =
-            data?.deleteNewChatPhoto !== false;
+            body?.deleteNewChatPhoto !== false;
 
-        if (!photoId) {
-            return json(
-                {
-                    success: false,
-                    error:
-                        "Missing photo ID."
-                },
-                400
-            );
+        if (!id) {
+            return json({
+                success: false,
+                error: "Missing photo ID."
+            }, 400);
         }
 
         const library =
-            await getProfileLibrary(
-                env,
-                owner.id
-            );
+            await getProfileLibrary(env, owner.id);
 
-        const photo =
-            library.find(
-                item =>
-                    String(item.id) ===
-                    String(photoId)
-            );
+        const photo = library.find(
+            item => String(item.id) === String(id)
+        );
 
         if (!photo?.fileId) {
-            return json(
-                {
-                    success: false,
-                    error:
-                        "Photo not found."
-                },
-                404
-            );
+            return json({
+                success: false,
+                error: "Photo not found."
+            }, 404);
         }
 
         const {
             response
-        } =
-            await downloadTelegramFile(
-                env,
-                photo.fileId
-            );
+        } = await downloadTelegramFile(
+            env,
+            photo.fileId
+        );
 
         if (!response.ok) {
             throw new Error(
@@ -3140,17 +3129,22 @@ async function handleLibraryApply(
             );
         }
 
-        const blob =
-            await response.blob();
+        const blob = await response.blob();
 
-        operation =
-            await setPendingPhotoDelete(
-                env,
-                chatId,
-                auth.user.id,
-                deleteNewChatPhoto,
-                false
-            );
+        operation = await setPendingPhotoDelete(
+            env,
+            chatId,
+            auth.user.id,
+            deleteNewChatPhoto,
+            false,
+            "library"
+        );
+
+        lock = await createPhotoChangeLock(
+            env,
+            chatId,
+            operation.id
+        );
 
         try {
             await setChatPhoto(
@@ -3159,20 +3153,26 @@ async function handleLibraryApply(
                 blob
             );
         } catch (error) {
-            if (operation?.id) {
-                await removePendingPhotoOperation(
-                    env,
-                    chatId,
-                    operation.id
-                );
-            }
+            await removePendingPhotoOperation(
+                env,
+                chatId,
+                operation.id
+            );
+
+            await removePhotoChangeLock(
+                env,
+                chatId,
+                operation.id
+            );
 
             throw error;
         }
 
         return json({
-            success:
-                true
+            success: true,
+            locked: true,
+            remainingMs: lock.remainingMs,
+            lockedUntil: lock.lockedUntil
         });
     } catch (error) {
         console.error(
@@ -3180,16 +3180,13 @@ async function handleLibraryApply(
             error
         );
 
-        return json(
-            {
-                success: false,
-                error:
-                    error instanceof Error
-                        ? error.message
-                        : String(error)
-            },
-            502
-        );
+        return json({
+            success: false,
+            error:
+                error instanceof Error
+                    ? error.message
+                    : String(error)
+        }, 502);
     }
 }
 
@@ -3286,6 +3283,98 @@ async function handleLibraryDelete(
 // ============================================================
 // KV HELPERS
 // ============================================================
+const PHOTO_CHANGE_LOCK_TTL = 60;
+
+function photoChangeLockKey(chatId) {
+    return `photo_change_lock:${String(chatId)}`;
+}
+
+async function getPhotoChangeLock(env, chatId) {
+    const lock = await CACHE(env).get(
+        photoChangeLockKey(chatId),
+        "json"
+    );
+
+    if (!lock || !lock.lockedUntil) {
+        return null;
+    }
+
+    const remainingMs = Math.max(
+        0,
+        Number(lock.lockedUntil) - Date.now()
+    );
+
+    if (!remainingMs) {
+        await CACHE(env).delete(photoChangeLockKey(chatId));
+        return null;
+    }
+
+    return {
+        ...lock,
+        remainingMs
+    };
+}
+
+async function createPhotoChangeLock(env, chatId, operationId) {
+    const now = Date.now();
+    const lockedUntil =
+        now + PHOTO_CHANGE_LOCK_TTL * 1000;
+
+    const lock = {
+        chatId,
+        operationId,
+        startedAt: now,
+        lockedUntil
+    };
+
+    await CACHE(env).put(
+        photoChangeLockKey(chatId),
+        JSON.stringify(lock),
+        {
+            expirationTtl: PHOTO_CHANGE_LOCK_TTL
+        }
+    );
+
+    return {
+        ...lock,
+        remainingMs: PHOTO_CHANGE_LOCK_TTL * 1000
+    };
+}
+
+async function removePhotoChangeLock(env, chatId, operationId = null) {
+    const key = photoChangeLockKey(chatId);
+
+    if (operationId) {
+        const current = await CACHE(env).get(key, "json");
+
+        if (
+            current?.operationId &&
+            String(current.operationId) !== String(operationId)
+        ) {
+            return;
+        }
+    }
+
+    await CACHE(env).delete(key);
+}
+
+async function getPhotoChangeLockStatus(env, chatId) {
+    const lock = await getPhotoChangeLock(env, chatId);
+
+    if (!lock) {
+        return {
+            locked: false,
+            remainingMs: 0,
+            lockedUntil: null
+        };
+    }
+
+    return {
+        locked: true,
+        remainingMs: lock.remainingMs,
+        lockedUntil: lock.lockedUntil
+    };
+}
 
 function pendingPhotoOperationKey(
     chatId,
@@ -3391,27 +3480,17 @@ async function setPendingPhotoDelete(
     chatId,
     userId,
     deleteNewChatPhoto = false,
-    saveProfilePhoto = true
+    saveProfilePhoto = true,
+    type = "crop"
 ) {
     return await addPendingPhotoOperation(
         env,
         chatId,
         {
-            type:
-                saveProfilePhoto
-                    ? "crop"
-                    : "library",
-
-            userId:
-                userId != null
-                    ? Number(userId)
-                    : null,
-
-            deleteNewChatPhoto:
-                !!deleteNewChatPhoto,
-
-            saveProfilePhoto:
-                !!saveProfilePhoto
+            type,
+            userId: userId != null ? Number(userId) : null,
+            deleteNewChatPhoto: !!deleteNewChatPhoto,
+            saveProfilePhoto: !!saveProfilePhoto
         }
     );
 }
@@ -3854,44 +3933,76 @@ async function deleteProfileLibraryPhoto(
 // CROP SUBMIT ENDPOINT
 // ============================================================
 
-async function handleCropSubmit(e, t, a) {
-    let n;
+async function handleCropSubmit(env, request, ctx) {
+    let formData;
 
     try {
-        n = await t.formData();
+        formData = await request.formData();
     } catch {
-        return new Response("Invalid form data.", { status: 400 });
+        return new Response(
+            "Invalid form data.",
+            { status: 400 }
+        );
     }
 
-    const r = String(n.get("session") || "");
-    const s = String(n.get("initData") || "");
-    const o = "1" === n.get("deleteNewChatPhoto");
-    const i = "0" !== n.get("saveProfilePhoto");
-    const l = n.get("photo");
+    const sessionId =
+        String(formData.get("session") || "");
 
-    if (!r) {
-        return new Response("Missing session.", { status: 400 });
+    const initData =
+        String(formData.get("initData") || "");
+
+    const deleteNewChatPhoto =
+        formData.get("deleteNewChatPhoto") === "1";
+
+    const saveProfilePhoto =
+        formData.get("saveProfilePhoto") !== "0";
+
+    const photo =
+        formData.get("photo");
+
+    if (!sessionId) {
+        return new Response(
+            "Missing session.",
+            { status: 400 }
+        );
     }
 
-    if (!l || "function" != typeof l.arrayBuffer) {
-        return new Response("Missing cropped photo.", { status: 400 });
+    if (
+        !photo ||
+        typeof photo.arrayBuffer !== "function"
+    ) {
+        return new Response(
+            "Missing cropped photo.",
+            { status: 400 }
+        );
     }
 
-    const u = await getSession(e, r);
+    const session =
+        await getSession(env, sessionId);
 
-    if (!u) {
-        return new Response("Crop session expired.", { status: 404 });
+    if (!session) {
+        return new Response(
+            "Crop session expired.",
+            { status: 404 }
+        );
     }
 
-    let c;
+    let auth;
 
     try {
-        c = await validateTelegramInitData(e, s);
-    } catch (e) {
-        return new Response(e.message, { status: 403 });
+        auth =
+            await validateTelegramInitData(
+                env,
+                initData
+            );
+    } catch (error) {
+        return new Response(
+            error.message,
+            { status: 403 }
+        );
     }
 
-    if (!c.user?.id) {
+    if (!auth.user?.id) {
         return new Response(
             "Telegram user information is missing.",
             { status: 403 }
@@ -3899,8 +4010,9 @@ async function handleCropSubmit(e, t, a) {
     }
 
     if (
-        u.userId &&
-        Number(u.userId) !== Number(c.user.id)
+        session.userId &&
+        Number(session.userId) !==
+            Number(auth.user.id)
     ) {
         return new Response(
             "This crop session belongs to another Telegram user.",
@@ -3908,123 +4020,175 @@ async function handleCropSubmit(e, t, a) {
         );
     }
 
-    if (l.size > 5242880) {
+    const existingLock =
+        await getPhotoChangeLock(
+            env,
+            session.chatId
+        );
+
+    if (existingLock) {
+        return Response.json({
+            success: false,
+            locked: true,
+            remainingMs:
+                existingLock.remainingMs,
+            lockedUntil:
+                existingLock.lockedUntil,
+            error:
+                `Please wait ${Math.ceil(existingLock.remainingMs / 1000)} seconds before changing the profile photo again.`
+        }, {
+            status: 429
+        });
+    }
+
+    if (photo.size > 5242880) {
         return new Response(
             "Cropped image is too large.",
             { status: 413 }
         );
     }
 
-    if ("image/jpeg" !== l.type) {
+    if (photo.type !== "image/jpeg") {
         return new Response(
             "The cropped image must be JPEG.",
             { status: 400 }
         );
     }
 
-    const d = new Blob(
-        [await l.arrayBuffer()],
+    const blob = new Blob(
+        [await photo.arrayBuffer()],
         { type: "image/jpeg" }
     );
 
-    let h = null;
+    let operation = null;
+    let lock = null;
 
     try {
-        console.log("CROP SUBMIT: setting chat photo");
-
-        h = await setPendingPhotoDelete(
-            e,
-            u.chatId,
-            u.userId,
-            o,
-            i
+        console.log(
+            "CROP SUBMIT: setting chat photo"
         );
 
+        operation =
+            await setPendingPhotoDelete(
+                env,
+                session.chatId,
+                session.userId,
+                deleteNewChatPhoto,
+                saveProfilePhoto,
+                "crop"
+            );
+
+        lock =
+            await createPhotoChangeLock(
+                env,
+                session.chatId,
+                operation.id
+            );
+
         await setChatPhoto(
-            e,
-            u.chatId,
-            d
+            env,
+            session.chatId,
+            blob
         );
 
         console.log(
             "CROP SUBMIT: chat photo changed successfully"
         );
-    } catch (t) {
-        if (h?.id) {
+    } catch (error) {
+        if (operation?.id) {
             try {
                 await removePendingPhotoOperation(
-                    e,
-                    u.chatId,
-                    h.id
+                    env,
+                    session.chatId,
+                    operation.id
                 );
-            } catch (e) {
+            } catch (removeError) {
                 console.error(
                     "Unable to remove failed crop operation:",
-                    e
+                    removeError
+                );
+            }
+        }
+
+        if (operation?.id) {
+            try {
+                await removePhotoChangeLock(
+                    env,
+                    session.chatId,
+                    operation.id
+                );
+            } catch (removeError) {
+                console.error(
+                    "Unable to remove failed crop lock:",
+                    removeError
                 );
             }
         }
 
         console.error(
             "setChatPhoto error:",
-            t
+            error
         );
 
-        return Response.json(
-            {
-                success: false,
-                error:
-                    t instanceof Error
-                        ? t.message
-                        : String(t)
-            },
-            { status: 502 }
-        );
+        return Response.json({
+            success: false,
+            error:
+                error instanceof Error
+                    ? error.message
+                    : String(error)
+        }, {
+            status: 502
+        });
     }
 
-    await deleteSession(e, r);
+    await deleteSession(
+        env,
+        sessionId
+    );
 
-    const g =
-        c.user.username ||
-        u.username ||
-        c.user.first_name ||
-        u.firstName ||
+    const username =
+        auth.user.username ||
+        session.username ||
+        auth.user.first_name ||
+        session.firstName ||
         "User";
 
-    return (
-        a.waitUntil(
-            (async () => {
-                if (!u.menuMessageId) {
-                    return;
-                }
+    return ctx.waitUntil(
+        (async () => {
+            if (!session.menuMessageId) {
+                return;
+            }
 
-                try {
-                    await editMenuMessage(
-                        e,
-                        u.chatId,
-                        u.menuMessageId,
-                        "base",
-                        {
-                            user: c.user,
-                            username: g,
-                            chatType: u.chatType
-                        }
-                    );
+            try {
+                await editMenuMessage(
+                    env,
+                    session.chatId,
+                    session.menuMessageId,
+                    "base",
+                    {
+                        user: auth.user,
+                        username,
+                        chatType: session.chatType
+                    }
+                );
 
-                    console.log(
-                        "CROP SUBMIT: menu changed to base:",
-                        u.menuMessageId
-                    );
-                } catch (e) {
-                    console.error(
-                        "Unable to change menu to base after photo change:",
-                        e
-                    );
-                }
-            })()
-        ),
-        Response.json({ success: true })
-    );
+                console.log(
+                    "CROP SUBMIT: menu changed to base:",
+                    session.menuMessageId
+                );
+            } catch (error) {
+                console.error(
+                    "Unable to change menu to base after photo change:",
+                    error
+                );
+            }
+        })()
+    ), Response.json({
+        success: true,
+        locked: true,
+        remainingMs: lock.remainingMs,
+        lockedUntil: lock.lockedUntil
+    });
 }
 
 
@@ -4203,6 +4367,108 @@ async function handleCropCancel(
     });
 }
 
+
+// ============================================================
+// CROP SUBMIT ENDPOINT
+// ============================================================
+
+async function handleLibraryPhotoStatus(env, request) {
+    try {
+        const {
+            chatId
+        } = await authorizeLibrary(
+            env,
+            request
+        );
+
+        return json({
+            success: true,
+            ...(await getPhotoChangeLockStatus(
+                env,
+                chatId
+            ))
+        });
+    } catch (error) {
+        return json({
+            success: false,
+            error:
+                error instanceof Error
+                    ? error.message
+                    : String(error)
+        }, 403);
+    }
+}
+
+async function handleCropPhotoStatus(env, request) {
+    const url = new URL(
+        request.url
+    );
+
+    const sessionId =
+        String(
+            url.searchParams.get("session") || ""
+        );
+
+    if (!sessionId) {
+        return json({
+            success: false,
+            error: "Missing session."
+        }, 400);
+    }
+
+    const session =
+        await getSession(
+            env,
+            sessionId
+        );
+
+    if (!session) {
+        return json({
+            success: false,
+            error: "Crop session expired."
+        }, 404);
+    }
+
+    try {
+        const auth =
+            await validateTelegramInitData(
+                env,
+                request.headers.get(
+                    "X-Telegram-Init-Data"
+                ) || ""
+            );
+
+        if (
+            !auth.user?.id ||
+            (
+                session.userId &&
+                Number(session.userId) !==
+                    Number(auth.user.id)
+            )
+        ) {
+            return json({
+                success: false,
+                error: "Unauthorized."
+            }, 403);
+        }
+
+        return json({
+            success: true,
+            ...(await getPhotoChangeLockStatus(
+                env,
+                session.chatId
+            ))
+        });
+    } catch (error) {
+        return json({
+            success: false,
+            error:
+                error instanceof Error
+                    ? error.message
+                    : String(error)
+        }, 403);
+    }
+}
 
 // ============================================================
 // CHAT MEMBERSHIP
