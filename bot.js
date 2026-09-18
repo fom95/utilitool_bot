@@ -5203,6 +5203,13 @@ export default {
             );
         }
 
+        if (path === "/api/crop/status") {
+            return await handleCropPhotoStatus(
+                env,
+                request
+            );
+        }
+
 
         // ----------------------------------------------------
         // CROP SUBMIT
@@ -5257,7 +5264,7 @@ export default {
             );
         }
 
-                // ----------------------------------------------------
+        // ----------------------------------------------------
         // PROFILE PHOTO LIBRARY
         // ----------------------------------------------------
 
@@ -5268,6 +5275,13 @@ export default {
                 "GET"
         ) {
             return handleLibrary(
+                env,
+                request
+            );
+        }
+
+        if (path === "/api/library/status") {
+            return await handleLibraryPhotoStatus(
                 env,
                 request
             );
