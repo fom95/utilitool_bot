@@ -1023,181 +1023,63 @@ async function showBaseMenu(
 // Then add its action in Actions below.
 // ============================================================
 
-const Menus = {
-
-    // --------------------------------------------------------
-    // BASE MENU
-    // --------------------------------------------------------
-
-    base:
-        Menu({
-            text:
-                ctx =>
-                    `@${ctx.username}, what would you like me to do?`,
-
-            buttons:
-                ctx => {
-                    if (
-                        ctx.chatType ===
-                        "private"
-                    ) {
-                        return [
-                            Button(
-                                "➕ Add to Group",
-                                {
-                                    url:
-                                        "https://t.me/utilitool_bot?startgroup=setup&admin=change_info+delete_messages"
-                                }
-                            ),
-
-                            Button(
-                                "📢 Add to Channel",
-                                {
-                                    url:
-                                        "https://t.me/utilitool_bot?startchannel&admin=change_info+post_messages+edit_messages+delete_messages"
-                                }
-                            )
-                        ];
-                    }
-
-                    return [
-                        [
-                            Button(
-                                "Change Profile Photo",
-                                {
-                                    action:
-                                        "photo"
-                                }
-                            )
-                        ],
-
-                        [
-                            Button(
-                                "🖼️ Profile Photo Library",
-                                {
-                                    action:
-                                        "library"
-                                }
-                            )
-                        ],
-
-                        [
-                            Button(
-                                "Bye",
-                                {
-                                    action:
-                                        "bye"
-                                }
-                            )
-                        ]
-                    ];
-                }
-        }),
-
-
-    // --------------------------------------------------------
-    // PROFILE PHOTO LIBRARY
-    // --------------------------------------------------------
-
-    library:
-    Menu({
-        text:
-            "Choose a saved profile photo to use for this chat.",
-        buttons:
-            ctx => [
-                Button("🖼️ Open Photo Library", {
-                    url:
-                        `https://t.me/utilitool_bot/main?startapp=library_${encodeURIComponent(String(ctx.chatId))}`
+const Menus={
+    base:Menu({
+        text:e=>`@${e.username}, what would you like me to do?`,
+        buttons:e=>"private"===e.chatType
+            ?[
+                Button("➕ Add to Group",{
+                    url:"https://t.me/utilitool_bot?startgroup=setup&admin=change_info+delete_messages"
                 }),
-                Button("Cancel", {
-                    action:
-                        "library_cancel"
+                Button("📢 Add to Channel",{
+                    url:"https://t.me/utilitool_bot?startchannel&admin=change_info+post_messages+edit_messages+delete_messages"
                 })
             ]
+            :[
+                [Button("Change Profile Photo",{action:"photo"})],
+                [Button("🖼️ Profile Photo Library",{action:"library"})],
+                [Button("Bye",{action:"bye"})]
+            ]
     }),
-
-
-    // --------------------------------------------------------
-    // BYE CONFIRMATION
-    // --------------------------------------------------------
-
-    bye:
-        Menu({
-            text:
-                "Are you sure you want me to leave?",
-
-            buttons: [
-                [
-                    Button(
-                        "Yes",
-                        {
-                            action:
-                                "bye_confirm"
-                        }
-                    ),
-
-                    Button(
-                        "No",
-                        {
-                            action:
-                                "bye_cancel"
-                        }
-                    )
-                ]
+    library:Menu({
+        text:"Choose a saved profile photo to use for this chat.",
+        buttons:e=>[
+            Button("🖼️ Open Photo Library",{
+                url:`https://t.me/utilitool_bot/main?startapp=library_${encodeURIComponent(String(e.chatId))}`
+            }),
+            Button("Cancel",{action:"library_cancel"})
+        ]
+    }),
+    bye:Menu({
+        text:"Are you sure you want me to leave?",
+        buttons:[
+            [Button("Yes",{action:"bye_confirm"}),Button("No",{action:"bye_cancel"})]
+        ]
+    }),
+    photo:Menu({
+        text:"Reply to the image or image document you want to use with @utilitool_bot.",
+        buttons:[
+            Button("Cancel",{action:"cancel_photo"})
+        ]
+    }),
+    crop:Menu({
+        text:"Position the square over the part of the image you want to use, then press Apply.",
+        buttons:e=>[
+            Button("Open Photo Cropper",{
+                url:`https://t.me/utilitool_bot/main?startapp=${encodeURIComponent(e.data.sessionId)}`
+            }),
+            Button("Cancel",{action:e=>`cancel_photo:${e.data.sessionId}`})
+        ]
+    }),
+    setarchive:Menu({
+        text:e=>`You already have a profile photo archive set to:\n\n${e.data.archiveTitle||e.data.archiveUsername||String(e.data.archiveChatId)}\n\nDo you want to replace it with this chat?`,
+        buttons:[
+            [
+                Button("Yes, replace it",{action:"setarchive_confirm"}),
+                Button("Cancel",{action:"setarchive_cancel"})
             ]
-        }),
-
-
-    // --------------------------------------------------------
-    // PHOTO INPUT
-    // --------------------------------------------------------
-
-    photo:
-        Menu({
-            text:
-                "Reply to the image or image document you want to use with @utilitool_bot.",
-
-            buttons: [
-                Button(
-                    "Cancel",
-                    {
-                        action:
-                            "cancel_photo"
-                    }
-                )
-            ]
-        }),
-
-
-    // --------------------------------------------------------
-    // IMAGE CROP
-    // --------------------------------------------------------
-
-    crop:
-        Menu({
-            text:
-                "Position the square over the part of the image you want to use, then press Apply.",
-
-            buttons:
-                ctx => [
-                    Button(
-                        "Open Photo Cropper",
-                        {
-                            url:
-                                `https://t.me/utilitool_bot/main?startapp=${encodeURIComponent(ctx.data.sessionId)}`
-                        }
-                    ),
-
-                    Button(
-                        "Cancel",
-                        {
-                            action:
-                                ctx =>
-                                    `cancel_photo:${ctx.data.sessionId}`
-                        }
-                    )
-                ]
-        })
+        ]
+    })
 };
 
 
@@ -1227,236 +1109,133 @@ const Menus = {
 // Dynamic button actions can additionally receive parameters.
 // ============================================================
 
-const Actions = {
+const Actions={
+    photo:async e=>{
+        await e.setState({
+            username:e.username,
+            lastUserId:Number(e.userId),
+            lastUsername:e.user?.username||null,
+            requesterId:Number(e.userId),
+            requesterUsername:e.user?.username||null,
+            mode:"waiting_for_photo"
+        });
+        await e.edit("photo");
+    },
 
-    // --------------------------------------------------------
-    // CHANGE PROFILE PHOTO
-    // --------------------------------------------------------
+    library:async e=>{
+        await e.setState({
+            username:e.username,
+            lastUserId:Number(e.userId),
+            lastUsername:e.user?.username||null,
+            mode:"library"
+        });
+        await e.edit("library");
+    },
 
-    photo:
-        async ctx => {
-            await ctx.setState({
-                username:
-                    ctx.username,
+    library_cancel:async e=>{
+        await e.setState({
+            username:e.username,
+            lastUserId:Number(e.userId),
+            lastUsername:e.user?.username||null,
+            mode:"base"
+        });
+        await e.edit("base");
+    },
 
-                lastUserId:
-                    Number(
-                        ctx.userId
-                    ),
+    cancel_photo:async e=>{
+        await e.setState({
+            username:e.username,
+            lastUserId:Number(e.userId),
+            lastUsername:e.user?.username||null,
+            mode:"base"
+        });
+        await e.edit("base");
+    },
 
-                lastUsername:
-                    ctx.user?.username ||
-                    null,
+    cancel_photo_session:async e=>{
+        const t=e.data.sessionId;
 
-                requesterId:
-                    Number(
-                        ctx.userId
-                    ),
+        if(t)
+            await deleteSession(e.env,t);
 
-                requesterUsername:
-                    ctx.user?.username ||
-                    null,
+        await e.setState({
+            username:e.username,
+            lastUserId:Number(e.userId),
+            lastUsername:e.user?.username||null,
+            mode:"base"
+        });
 
-                mode:
-                    "waiting_for_photo"
-            });
+        await e.edit("base");
+    },
 
-            await ctx.edit(
-                "photo"
+    bye:async e=>{
+        await e.setState({mode:"confirm_bye"});
+        await e.edit("bye");
+    },
+
+    bye_cancel:async e=>{
+        await e.setState({mode:"base"});
+        await e.edit("base");
+    },
+
+    bye_confirm:async e=>{
+        try{
+            await deleteMessage(
+                e.env,
+                e.chatId,
+                e.state?.messageId||e.message?.message_id
             );
-        },
-
-
-    // --------------------------------------------------------
-    // OPEN PROFILE PHOTO LIBRARY
-    // --------------------------------------------------------
-
-    library:
-        async ctx => {
-            await ctx.setState({
-                username:
-                    ctx.username,
-
-                lastUserId:
-                    Number(
-                        ctx.userId
-                    ),
-
-                lastUsername:
-                    ctx.user?.username ||
-                    null,
-
-                mode:
-                    "library"
-            });
-
-            await ctx.edit(
-                "library"
-            );
-        },
-
-
-    // --------------------------------------------------------
-    // CANCEL PROFILE PHOTO LIBRARY
-    // --------------------------------------------------------
-
-    library_cancel:
-        async ctx => {
-            await ctx.setState({
-                username:
-                    ctx.username,
-
-                lastUserId:
-                    Number(
-                        ctx.userId
-                    ),
-
-                lastUsername:
-                    ctx.user?.username ||
-                    null,
-
-                mode:
-                    "base"
-            });
-
-            await ctx.edit(
-                "base"
-            );
-        },
-
-
-    // --------------------------------------------------------
-    // CANCEL PHOTO SELECTION
-    // --------------------------------------------------------
-
-    cancel_photo:
-        async ctx => {
-            await ctx.setState({
-                username:
-                    ctx.username,
-
-                lastUserId:
-                    Number(
-                        ctx.userId
-                    ),
-
-                lastUsername:
-                    ctx.user?.username ||
-                    null,
-
-                mode:
-                    "base"
-            });
-
-            await ctx.edit(
-                "base"
-            );
-        },
-
-
-    // --------------------------------------------------------
-    // CANCEL PHOTO CROP
-    // --------------------------------------------------------
-
-    cancel_photo_session:
-        async ctx => {
-            const sessionId =
-                ctx.data.sessionId;
-
-            if (sessionId) {
-                await deleteSession(
-                    ctx.env,
-                    sessionId
-                );
-            }
-
-            await ctx.setState({
-                username:
-                    ctx.username,
-
-                lastUserId:
-                    Number(
-                        ctx.userId
-                    ),
-
-                lastUsername:
-                    ctx.user?.username ||
-                    null,
-
-                mode:
-                    "base"
-            });
-
-            await ctx.edit(
-                "base"
-            );
-        },
-
-
-    // --------------------------------------------------------
-    // SHOW BYE CONFIRMATION
-    // --------------------------------------------------------
-
-    bye:
-        async ctx => {
-            await ctx.setState({
-                mode:
-                    "confirm_bye"
-            });
-
-            await ctx.edit(
-                "bye"
-            );
-        },
-
-
-    // --------------------------------------------------------
-    // CANCEL BYE
-    // --------------------------------------------------------
-
-    bye_cancel:
-        async ctx => {
-            await ctx.setState({
-                mode:
-                    "base"
-            });
-
-            await ctx.edit(
-                "base"
-            );
-        },
-
-
-    // --------------------------------------------------------
-    // CONFIRM BYE
-    // --------------------------------------------------------
-
-    bye_confirm:
-        async ctx => {
-            try {
-                await deleteMessage(
-                    ctx.env,
-                    ctx.chatId,
-                    ctx.state?.messageId ||
-                        ctx.message?.message_id
-                );
-            } catch (error) {
-                console.error(
-                    "Unable to delete goodbye menu:",
-                    error
-                );
-            }
-
-            await deleteMenuState(
-                ctx.env,
-                ctx.chatId
-            );
-
-            await leaveChat(
-                ctx.env,
-                ctx.chatId
-            );
+        }catch(e){
+            console.error("Unable to delete goodbye menu:",e);
         }
+
+        await deleteMenuState(e.env,e.chatId);
+        await leaveChat(e.env,e.chatId);
+    },
+
+    setarchive_confirm:async e=>{
+        const chat=e.chat;
+
+        if(!chat?.id)
+            return;
+
+        if(
+            "group"!==chat.type &&
+            "supergroup"!==chat.type &&
+            "channel"!==chat.type
+        ){
+            await e.edit("base");
+            return;
+        }
+
+        const owner=await getChatOwner(e.env,chat.id);
+
+        if(
+            !owner?.id ||
+            Number(owner.id)!==Number(e.userId)
+        ){
+            await e.edit("base");
+            return;
+        }
+
+        await setProfileArchive(
+            e.env,
+            owner.id,
+            {
+                chatId:chat.id,
+                chatType:chat.type,
+                title:chat.title||null,
+                username:chat.username||null,
+                updatedAt:Date.now()
+            }
+        );
+
+        await e.edit("base");
+    },
+
+    setarchive_cancel:async e=>{
+        await e.edit("base");
+    }
 };
 
 // ============================================================
@@ -1772,93 +1551,82 @@ async function handleStartCommand(
     return false;
 }
 
-async function handleSetArchive(
-    env,
-    message
-) {
-    const chat =
-        message.chat;
+async function handleSetArchive(e,t){
+    const a=t.chat,
+        n=t.from;
 
-    const user =
-        message.from;
+    if(!a?.id||!n?.id)
+        return!1;
 
-    if (
-        !chat?.id ||
-        !user?.id
-    ) {
-        return false;
-    }
-
-    if (
-        chat.type !== "group" &&
-        chat.type !== "supergroup" &&
-        chat.type !== "channel"
-    ) {
+    if(
+        "group"!==a.type &&
+        "supergroup"!==a.type &&
+        "channel"!==a.type
+    ){
         await sendMessage(
-            env,
-            chat.id,
+            e,
+            a.id,
             "The archive must be a group, supergroup, or channel."
         );
-
-        return true;
+        return!0;
     }
 
-    const administrators =
-        await telegram(
-            env,
-            "getChatAdministrators",
-            {
-                chat_id: chat.id
-            }
-        );
+    const r=await getChatOwner(e,a.id);
 
-    const owner =
-        administrators.find(
-            member =>
-                member?.status ===
-                "creator"
-        );
-
-    if (
-        !owner?.user?.id ||
-        Number(owner.user.id) !==
-            Number(user.id)
-    ) {
+    if(
+        !r?.id ||
+        Number(r.id)!==Number(n.id)
+    ){
         await sendMessage(
-            env,
-            chat.id,
+            e,
+            a.id,
             "Only the owner of this chat can make it the profile photo archive."
         );
+        return!0;
+    }
 
-        return true;
+    const o=await getProfileArchive(e,n.id);
+
+    if(
+        o?.chatId &&
+        String(o.chatId)!==String(a.id)
+    ){
+        const s=await getMenuState(e,a.id);
+
+        await createMenu(e,{
+            menu:"setarchive",
+            chat:a,
+            user:n,
+            state:s,
+            data:{
+                archiveChatId:o.chatId,
+                archiveTitle:o.title||null,
+                archiveUsername:o.username||null
+            }
+        });
+
+        return!0;
     }
 
     await setProfileArchive(
-        env,
-        user.id,
+        e,
+        n.id,
         {
-            chatId:
-                chat.id,
-
-            chatType:
-                chat.type,
-
-            title:
-                chat.title ||
-                null,
-
-            updatedAt:
-                Date.now()
+            chatId:a.id,
+            chatType:a.type,
+            title:a.title||null,
+            username:a.username||null,
+            updatedAt:Date.now()
         }
     );
 
     await sendMessage(
-        env,
-        chat.id,
+        e,
+        a.id,
         "✅ This chat is now your Profile Photo Archive."
     );
 
-    return true;
+    return!0;
 }
 
 
