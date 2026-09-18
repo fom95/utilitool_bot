@@ -5085,99 +5085,51 @@ async function handleWebhook(
 // ============================================================
 
 export default {
-
-    async fetch(
-        request,
-        env,
-        ctx
-    ) {
-        const url =
-            new URL(
-                request.url
-            );
-
-
-        // ----------------------------------------------------
-        // DEBUG
-        // ----------------------------------------------------
+    async fetch(request, env, ctx) {
+        const url = new URL(request.url);
 
         if (
-            url.pathname ===
-                "/debug/webhook" &&
-            request.method ===
-                "GET"
+            url.pathname === "/debug/webhook" &&
+            request.method === "GET"
         ) {
             try {
-                const token =
-                    await BOT_TOKEN(
-                        env
-                    );
-
-                const me =
-                    await telegram(
-                        env,
-                        "getMe"
-                    );
+                const token = await BOT_TOKEN(env);
+                const me = await telegram(
+                    env,
+                    "getMe"
+                );
 
                 return Response.json({
-                    tokenType:
-                        typeof token,
-
+                    tokenType: typeof token,
                     tokenLength:
-                        typeof token ===
-                        "string"
+                        typeof token === "string"
                             ? token.length
                             : null,
-
                     tokenFormat:
-                        typeof token ===
-                        "string"
-                            ? /^\d+:[A-Za-z0-9_-]+$/.test(
-                                token
-                            )
-                            : false,
-
+                        typeof token === "string" &&
+                        /^\d+:[A-Za-z0-9_-]+$/.test(token),
                     tokenPrefix:
-                        typeof token ===
-                        "string"
-                            ? token.slice(
-                                0,
-                                10
-                            )
+                        typeof token === "string"
+                            ? token.slice(0, 10)
                             : null,
-
-                    botId:
-                        me.id,
-
-                    botUsername:
-                        me.username
+                    botId: me.id,
+                    botUsername: me.username
                 });
             } catch (error) {
-                return Response.json(
-                    {
-                        error:
-                            error instanceof Error
-                                ? error.message
-                                : String(error)
-                    },
-                    {
-                        status:
-                            500
-                    }
-                );
+                return Response.json({
+                    error:
+                        error instanceof Error
+                            ? error.message
+                            : String(error)
+                }, {
+                    status: 500
+                });
             }
         }
 
-
-        // ----------------------------------------------------
-        // TELEGRAM WEBHOOK
-        // ----------------------------------------------------
-
         if (
-            request.method ===
-                "POST" &&
-            url.pathname ===
-                "/telegram/webhook"
+            request.method === "POST" &&
+            url.pathname === "/telegram/webhook"
         ) {
             return handleWebhook(
                 env,
@@ -5185,16 +5137,9 @@ export default {
             );
         }
 
-
-        // ----------------------------------------------------
-        // CROP IMAGE
-        // ----------------------------------------------------
-
         if (
-            url.pathname ===
-                "/api/crop/image" &&
-            request.method ===
-                "GET"
+            request.method === "GET" &&
+            url.pathname === "/api/crop/image"
         ) {
             return handleCropImage(
                 env,
@@ -5203,23 +5148,19 @@ export default {
             );
         }
 
-        if (path === "/api/crop/status") {
-            return await handleCropPhotoStatus(
+        if (
+            request.method === "GET" &&
+            url.pathname === "/api/crop/status"
+        ) {
+            return handleCropPhotoStatus(
                 env,
                 request
             );
         }
 
-
-        // ----------------------------------------------------
-        // CROP SUBMIT
-        // ----------------------------------------------------
-
         if (
-            url.pathname ===
-                "/api/crop/submit" &&
-            request.method ===
-                "POST"
+            request.method === "POST" &&
+            url.pathname === "/api/crop/submit"
         ) {
             return handleCropSubmit(
                 env,
@@ -5228,51 +5169,31 @@ export default {
             );
         }
 
-
-        // ----------------------------------------------------
-        // CROP CANCEL
-        // ----------------------------------------------------
-
         if (
-            url.pathname ===
-                "/api/crop/cancel" &&
-            request.method ===
-                "POST"
+            request.method === "POST" &&
+            url.pathname === "/api/crop/cancel"
         ) {
             let body;
 
             try {
-                body =
-                    await request.json();
+                body = await request.json();
             } catch {
                 return new Response(
                     "Invalid request.",
-                    {
-                        status:
-                            400
-                    }
+                    { status: 400 }
                 );
             }
 
             return handleCropCancel(
                 env,
                 request,
-                String(
-                    body.session ||
-                    ""
-                )
+                String(body.session || "")
             );
         }
 
-        // ----------------------------------------------------
-        // PROFILE PHOTO LIBRARY
-        // ----------------------------------------------------
-
         if (
-            url.pathname ===
-                "/api/library" &&
-            request.method ===
-                "GET"
+            request.method === "GET" &&
+            url.pathname === "/api/library"
         ) {
             return handleLibrary(
                 env,
@@ -5280,23 +5201,19 @@ export default {
             );
         }
 
-        if (path === "/api/library/status") {
-            return await handleLibraryPhotoStatus(
+        if (
+            request.method === "GET" &&
+            url.pathname === "/api/library/status"
+        ) {
+            return handleLibraryPhotoStatus(
                 env,
                 request
             );
         }
 
-
-        // ----------------------------------------------------
-        // PROFILE PHOTO LIBRARY IMAGE
-        // ----------------------------------------------------
-
         if (
-            url.pathname ===
-                "/api/library/photo" &&
-            request.method ===
-                "GET"
+            request.method === "GET" &&
+            url.pathname === "/api/library/photo"
         ) {
             return handleLibraryPhoto(
                 env,
@@ -5305,34 +5222,19 @@ export default {
             );
         }
 
-
-        // ----------------------------------------------------
-        // APPLY PROFILE PHOTO FROM LIBRARY
-        // ----------------------------------------------------
-
         if (
-            url.pathname ===
-                "/api/library/apply" &&
-            request.method ===
-                "POST"
+            request.method === "POST" &&
+            url.pathname === "/api/library/apply"
         ) {
             return handleLibraryApply(
                 env,
-                request,
-                ctx
+                request
             );
         }
 
-
-        // ----------------------------------------------------
-        // DELETE PROFILE PHOTO FROM LIBRARY
-        // ----------------------------------------------------
-
         if (
-            url.pathname ===
-                "/api/library/delete" &&
-            request.method ===
-                "POST"
+            request.method === "POST" &&
+            url.pathname === "/api/library/delete"
         ) {
             return handleLibraryDelete(
                 env,
@@ -5340,28 +5242,13 @@ export default {
             );
         }
 
-
-        // ----------------------------------------------------
-        // STATIC ASSETS
-        // ----------------------------------------------------
-
         if (env.ASSETS) {
-            return env.ASSETS.fetch(
-                request
-            );
+            return env.ASSETS.fetch(request);
         }
-
-
-        // ----------------------------------------------------
-        // NOT FOUND
-        // ----------------------------------------------------
 
         return new Response(
             "Not found.",
-            {
-                status:
-                    404
-            }
+            { status: 404 }
         );
     }
 };
