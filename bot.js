@@ -3069,6 +3069,8 @@ async function handleLibraryApply(
     env,
     request
 ) {
+    let operation = null;
+
     try {
         const {
             chatId,
@@ -3141,20 +3143,14 @@ async function handleLibraryApply(
         const blob =
             await response.blob();
 
-        /*
-         * Install the Library suppression state
-         * BEFORE changing the chat photo.
-         *
-         * Library changes must not be archived
-         * again when Telegram sends new_chat_photo.
-         */
-        await setPendingPhotoDelete(
-            env,
-            chatId,
-            auth.user.id,
-            deleteNewChatPhoto,
-            false
-        );
+        operation =
+            await setPendingPhotoDelete(
+                env,
+                chatId,
+                auth.user.id,
+                deleteNewChatPhoto,
+                false
+            );
 
         try {
             await setChatPhoto(
@@ -3163,23 +3159,20 @@ async function handleLibraryApply(
                 blob
             );
         } catch (error) {
-            /*
-             * The photo change itself failed.
-             *
-             * Remove the pending suppression so
-             * it cannot affect a later real photo
-             * change.
-             */
-            await deletePendingPhotoDelete(
-                env,
-                chatId
-            );
+            if (operation?.id) {
+                await removePendingPhotoOperation(
+                    env,
+                    chatId,
+                    operation.id
+                );
+            }
 
             throw error;
         }
 
         return json({
-            success: true
+            success:
+                true
         });
     } catch (error) {
         console.error(
@@ -3294,43 +3287,103 @@ async function handleLibraryDelete(
 // KV HELPERS
 // ============================================================
 
-function pendingPhotoDeleteKey(
-    chatId
+function pendingPhotoOperationKey(
+    chatId,
+    operationId
 ) {
-    return `delete_new_chat_photo:${String(chatId)}`;
+    return `photo_operation:${String(chatId)}:${operationId}`;
 }
 
-async function getPendingPhotoDelete(
+function pendingPhotoOperationPrefix(
+    chatId
+) {
+    return `photo_operation:${String(chatId)}:`;
+}
+
+async function addPendingPhotoOperation(
+    env,
+    chatId,
+    data
+) {
+    const id =
+        crypto.randomUUID();
+
+    const operation = {
+        id,
+        chatId,
+        createdAt:
+            Date.now(),
+        ...data
+    };
+
+    await CACHE(env).put(
+        pendingPhotoOperationKey(
+            chatId,
+            id
+        ),
+        JSON.stringify(operation),
+        {
+            expirationTtl:
+                60
+        }
+    );
+
+    return operation;
+}
+
+async function getPendingPhotoOperations(
     env,
     chatId
 ) {
-    const pending =
-        await CACHE(env).get(
-            pendingPhotoDeleteKey(
-                chatId
-            ),
-            "json"
+    const prefix =
+        pendingPhotoOperationPrefix(
+            chatId
         );
 
-    if (!pending) {
-        return null;
+    const listed =
+        await CACHE(env).list({
+            prefix
+        });
+
+    if (!listed?.keys?.length) {
+        return [];
     }
 
-    if (
-        pending.expiresAt &&
-        Date.now() >
-            pending.expiresAt
-    ) {
-        await CACHE(env).delete(
-            pendingPhotoDeleteKey(
-                chatId
+    const operations =
+        await Promise.all(
+            listed.keys.map(
+                async item => {
+                    const value =
+                        await CACHE(env).get(
+                            item.name,
+                            "json"
+                        );
+
+                    return value || null;
+                }
             )
         );
 
-        return null;
-    }
+    return operations
+        .filter(Boolean)
+        .sort(
+            (a, b) =>
+                (a.createdAt || 0) -
+                (b.createdAt || 0)
+        );
+}
 
-    return pending;
+async function removePendingPhotoOperation(
+    env,
+    chatId,
+    operationId
+) {
+    await CACHE(env).delete(
+        pendingPhotoOperationKey(
+            chatId,
+            operationId
+        )
+    );
 }
 
 async function setPendingPhotoDelete(
@@ -3340,59 +3393,26 @@ async function setPendingPhotoDelete(
     deleteNewChatPhoto = false,
     saveProfilePhoto = true
 ) {
-    const now =
-        Date.now();
-
-    const pending = {
-        id:
-            crypto.randomUUID(),
-
+    return await addPendingPhotoOperation(
+        env,
         chatId,
-
-        userId,
-
-        deleteNewChatPhoto,
-
-        saveProfilePhoto,
-
-        createdAt:
-            now,
-
-        expiresAt:
-            now +
-            (
-                saveProfilePhoto
-                    ? 15000
-                    : 30000
-            )
-    };
-
-    await CACHE(env).put(
-        pendingPhotoDeleteKey(
-            chatId
-        ),
-        JSON.stringify(
-            pending
-        ),
         {
-            expirationTtl:
+            type:
                 saveProfilePhoto
-                    ? 20
-                    : 35
+                    ? "crop"
+                    : "library",
+
+            userId:
+                userId != null
+                    ? Number(userId)
+                    : null,
+
+            deleteNewChatPhoto:
+                !!deleteNewChatPhoto,
+
+            saveProfilePhoto:
+                !!saveProfilePhoto
         }
-    );
-
-    return pending;
-}
-
-async function deletePendingPhotoDelete(
-    env,
-    chatId
-) {
-    await CACHE(env).delete(
-        pendingPhotoDeleteKey(
-            chatId
-        )
     );
 }
 
@@ -3834,275 +3854,177 @@ async function deleteProfileLibraryPhoto(
 // CROP SUBMIT ENDPOINT
 // ============================================================
 
-async function handleCropSubmit(
-    env,
-    request,
-    ctx
-) {
-    let form;
+async function handleCropSubmit(e, t, a) {
+    let n;
 
     try {
-        form =
-            await request.formData();
+        n = await t.formData();
     } catch {
-        return new Response(
-            "Invalid form data.",
-            {
-                status:
-                    400
-            }
-        );
+        return new Response("Invalid form data.", { status: 400 });
     }
 
-    const sessionId =
-        String(
-            form.get(
-                "session"
-            ) ||
-            ""
-        );
+    const r = String(n.get("session") || "");
+    const s = String(n.get("initData") || "");
+    const o = "1" === n.get("deleteNewChatPhoto");
+    const i = "0" !== n.get("saveProfilePhoto");
+    const l = n.get("photo");
 
-    const initData =
-        String(
-            form.get(
-                "initData"
-            ) ||
-            ""
-        );
-
-    const deleteNewChatPhoto =
-        form.get(
-            "deleteNewChatPhoto"
-        ) === "1";
-
-    const saveProfilePhoto =
-        form.get(
-            "saveProfilePhoto"
-        ) !== "0";
-
-    const photo =
-        form.get(
-            "photo"
-        );
-
-    if (!sessionId) {
-        return new Response(
-            "Missing session.",
-            {
-                status:
-                    400
-            }
-        );
+    if (!r) {
+        return new Response("Missing session.", { status: 400 });
     }
 
-    if (
-        !photo ||
-        typeof photo.arrayBuffer !==
-            "function"
-    ) {
-        return new Response(
-            "Missing cropped photo.",
-            {
-                status:
-                    400
-            }
-        );
+    if (!l || "function" != typeof l.arrayBuffer) {
+        return new Response("Missing cropped photo.", { status: 400 });
     }
 
-    const session =
-        await getSession(
-            env,
-            sessionId
-        );
+    const u = await getSession(e, r);
 
-    if (!session) {
-        return new Response(
-            "Crop session expired.",
-            {
-                status:
-                    404
-            }
-        );
+    if (!u) {
+        return new Response("Crop session expired.", { status: 404 });
     }
 
-    let auth;
+    let c;
 
     try {
-        auth =
-            await validateTelegramInitData(
-                env,
-                initData
-            );
-    } catch (error) {
-        return new Response(
-            error.message,
-            {
-                status:
-                    403
-            }
-        );
+        c = await validateTelegramInitData(e, s);
+    } catch (e) {
+        return new Response(e.message, { status: 403 });
     }
 
-    if (!auth.user?.id) {
+    if (!c.user?.id) {
         return new Response(
             "Telegram user information is missing.",
-            {
-                status:
-                    403
-            }
+            { status: 403 }
         );
     }
 
     if (
-        session.userId &&
-        Number(session.userId) !==
-            Number(auth.user.id)
+        u.userId &&
+        Number(u.userId) !== Number(c.user.id)
     ) {
         return new Response(
             "This crop session belongs to another Telegram user.",
-            {
-                status:
-                    403
-            }
+            { status: 403 }
         );
     }
 
-    if (
-        photo.size >
-        5 * 1024 * 1024
-    ) {
+    if (l.size > 5242880) {
         return new Response(
             "Cropped image is too large.",
-            {
-                status:
-                    413
-            }
+            { status: 413 }
         );
     }
 
-    if (
-        photo.type !==
-        "image/jpeg"
-    ) {
+    if ("image/jpeg" !== l.type) {
         return new Response(
             "The cropped image must be JPEG.",
-            {
-                status:
-                    400
-            }
+            { status: 400 }
         );
     }
 
-    const blob =
-        new Blob(
-            [
-                await photo.arrayBuffer()
-            ],
-            {
-                type:
-                    "image/jpeg"
-            }
-        );
+    const d = new Blob(
+        [await l.arrayBuffer()],
+        { type: "image/jpeg" }
+    );
+
+    let h = null;
 
     try {
-        console.log(
-            "CROP SUBMIT: setting chat photo"
-        );
+        console.log("CROP SUBMIT: setting chat photo");
 
-        await setPendingPhotoDelete(
-            env,
-            session.chatId,
-            session.userId,
-            deleteNewChatPhoto,
-            saveProfilePhoto
+        h = await setPendingPhotoDelete(
+            e,
+            u.chatId,
+            u.userId,
+            o,
+            i
         );
 
         await setChatPhoto(
-            env,
-            session.chatId,
-            blob
+            e,
+            u.chatId,
+            d
         );
 
         console.log(
             "CROP SUBMIT: chat photo changed successfully"
         );
-    } catch (error) {
+    } catch (t) {
+        if (h?.id) {
+            try {
+                await removePendingPhotoOperation(
+                    e,
+                    u.chatId,
+                    h.id
+                );
+            } catch (e) {
+                console.error(
+                    "Unable to remove failed crop operation:",
+                    e
+                );
+            }
+        }
+
         console.error(
             "setChatPhoto error:",
-            error
+            t
         );
 
         return Response.json(
             {
-                success:
-                    false,
-
+                success: false,
                 error:
-                    error instanceof Error
-                        ? error.message
-                        : String(error)
+                    t instanceof Error
+                        ? t.message
+                        : String(t)
             },
-            {
-                status:
-                    502
-            }
+            { status: 502 }
         );
     }
 
-    await deleteSession(
-        env,
-        sessionId
-    );
+    await deleteSession(e, r);
 
-    const username =
-        auth.user.username ||
-        session.username ||
-        null;
-
-    const displayName =
-        username ||
-        auth.user.first_name ||
-        session.firstName ||
+    const g =
+        c.user.username ||
+        u.username ||
+        c.user.first_name ||
+        u.firstName ||
         "User";
 
-    ctx.waitUntil(
-        (async () => {
-            if (!session.menuMessageId) {
-                return;
-            }
-    
-            try {
-                await editMenuMessage(
-                    env,
-                    session.chatId,
-                    session.menuMessageId,
-                    "base",
-                    {
-                        user:
-                            auth.user,
-    
-                        username:
-                            displayName
-                    }
-                );
-    
-                console.log(
-                    "CROP SUBMIT: menu changed to base:",
-                    session.menuMessageId
-                );
-            } catch (error) {
-                console.error(
-                    "Unable to change menu to base after photo change:",
-                    error
-                );
-            }
-        })()
-    );
+    return (
+        a.waitUntil(
+            (async () => {
+                if (!u.menuMessageId) {
+                    return;
+                }
 
-    return Response.json({
-        success:
-            true
-    });
+                try {
+                    await editMenuMessage(
+                        e,
+                        u.chatId,
+                        u.menuMessageId,
+                        "base",
+                        {
+                            user: c.user,
+                            username: g,
+                            chatType: u.chatType
+                        }
+                    );
+
+                    console.log(
+                        "CROP SUBMIT: menu changed to base:",
+                        u.menuMessageId
+                    );
+                } catch (e) {
+                    console.error(
+                        "Unable to change menu to base after photo change:",
+                        e
+                    );
+                }
+            })()
+        ),
+        Response.json({ success: true })
+    );
 }
 
 
@@ -4559,8 +4481,8 @@ async function handleNewChatPhoto(
         return false;
     }
 
-    const pending =
-        await getPendingPhotoDelete(
+    const operations =
+        await getPendingPhotoOperations(
             env,
             chatId
         );
@@ -4571,78 +4493,71 @@ async function handleNewChatPhoto(
             chatId,
             messageId:
                 message.message_id,
-
-            pending:
-                pending
-                    ? {
+            operations:
+                operations.map(
+                    operation => ({
                         id:
-                            pending.id,
-
+                            operation.id,
+                        type:
+                            operation.type,
                         userId:
-                            pending.userId,
-
+                            operation.userId,
                         deleteNewChatPhoto:
-                            pending.deleteNewChatPhoto,
-
+                            operation.deleteNewChatPhoto,
                         saveProfilePhoto:
-                            pending.saveProfilePhoto,
-
+                            operation.saveProfilePhoto,
                         createdAt:
-                            pending.createdAt,
-
-                        expiresAt:
-                            pending.expiresAt
-                    }
-                    : null
+                            operation.createdAt
+                    })
+                )
         })
     );
 
+    let operation =
+        null;
+
     /*
-     * Resolve the owner regardless of whether
-     * this photo came from the Library or Crop.
+     * Crop operations are handled first.
+     *
+     * This prevents a Library operation that was
+     * created earlier from stealing a crop event.
      */
-    let owner;
-    let chat;
+    operation =
+        operations.find(
+            item =>
+                item.type === "crop"
+        ) || null;
 
-    try {
-        ({
-            owner,
-            chat
-        } =
-            await resolveProfileLibraryOwner(
-                env,
-                chatId
-            ));
-    } catch (error) {
-        console.error(
-            "Unable to resolve profile library owner:",
-            error
-        );
-
-        return true;
+    /*
+     * If there is no crop operation waiting,
+     * consume the oldest Library operation.
+     */
+    if (!operation) {
+        operation =
+            operations.find(
+                item =>
+                    item.type === "library"
+            ) || null;
     }
 
     /*
-     * Library Apply:
-     *
-     * saveProfilePhoto === false means this
-     * service message must NOT create another
-     * archive entry.
+     * Always attempt to archive the new profile
+     * photo unless this was explicitly a Library
+     * operation.
      */
     if (
-        pending?.saveProfilePhoto === false
+        operation?.type !== "library"
     ) {
-        console.log(
-            "NEW CHAT PHOTO: suppressing archive save for Library Apply"
-        );
-    } else {
-        /*
-         * No pending operation means this was
-         * an ordinary Telegram profile-photo
-         * change, so retain the old behavior
-         * and archive it.
-         */
         try {
+            const {
+                owner,
+                chat
+            } =
+                await resolveProfileLibraryOwner(
+                    env,
+                    chatId
+                );
+
             await addProfileLibraryPhoto(
                 env,
                 owner.id,
@@ -4659,13 +4574,17 @@ async function handleNewChatPhoto(
                 error
             );
         }
+    } else {
+        console.log(
+            "NEW CHAT PHOTO: library operation, not saving to archive"
+        );
     }
 
     /*
-     * No pending state means there is nothing
-     * telling us to delete the service message.
+     * Nothing was explicitly waiting for this
+     * profile-photo change.
      */
-    if (!pending) {
+    if (!operation) {
         console.log(
             "NEW CHAT PHOTO: no pending operation"
         );
@@ -4674,19 +4593,28 @@ async function handleNewChatPhoto(
     }
 
     /*
-     * Library Apply states deliberately remain
-     * alive for their expiration period because
-     * multiple rapid Library changes can each
-     * generate their own service message.
+     * Remove ONLY the operation corresponding
+     * to this event. Other rapid operations remain
+     * queued.
+     */
+    await removePendingPhotoOperation(
+        env,
+        chatId,
+        operation.id
+    );
+
+    /*
+     * Library changes can optionally delete their
+     * Telegram service message.
      */
     if (
-        pending.saveProfilePhoto === false
+        operation.type === "library"
     ) {
         if (
-            !pending.deleteNewChatPhoto
+            !operation.deleteNewChatPhoto
         ) {
             console.log(
-                "NEW CHAT PHOTO: Library deletion disabled"
+                "NEW CHAT PHOTO: library operation, deletion disabled"
             );
 
             return true;
@@ -4707,12 +4635,12 @@ async function handleNewChatPhoto(
             );
 
             console.log(
-                "NEW CHAT PHOTO: deleted Library service message:",
+                "NEW CHAT PHOTO: deleted library service message:",
                 messageId
             );
         } catch (error) {
             console.error(
-                "Unable to delete Library new_chat_photo message:",
+                "Unable to delete new profile-photo message:",
                 error
             );
         }
@@ -4721,27 +4649,23 @@ async function handleNewChatPhoto(
     }
 
     /*
-     * Crop / Reply operation.
-     *
-     * This state is consumed after its
-     * corresponding service message.
+     * Crop operation.
      */
-    await deletePendingPhotoDelete(
-        env,
-        chatId
-    );
-
     if (
-        !pending.deleteNewChatPhoto
+        operation.userId &&
+        message.from?.id &&
+        Number(operation.userId) !==
+            Number(message.from.id)
     ) {
+        console.log(
+            "NEW CHAT PHOTO: crop user mismatch; leaving service message"
+        );
+
         return true;
     }
 
     if (
-        pending.userId &&
-        message.from?.id &&
-        Number(pending.userId) !==
-            Number(message.from.id)
+        !operation.deleteNewChatPhoto
     ) {
         return true;
     }
@@ -4761,12 +4685,12 @@ async function handleNewChatPhoto(
         );
 
         console.log(
-            "NEW CHAT PHOTO: deleted Crop service message:",
+            "NEW CHAT PHOTO: deleted crop service message:",
             messageId
         );
     } catch (error) {
         console.error(
-            "Unable to delete Crop new_chat_photo message:",
+            "Unable to delete new profile-photo message:",
             error
         );
     }
