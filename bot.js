@@ -3279,7 +3279,23 @@ async function setPendingPhotoDelete(
             chatId
         );
 
-    pending.push({
+    /*
+     * A crop/new-photo operation must never
+     * sit behind stale Library Apply entries.
+     *
+     * Library entries are only suppression
+     * operations, while crop entries need to
+     * save the resulting photo.
+     */
+    const cleaned =
+        saveProfilePhoto
+            ? pending.filter(
+                item =>
+                    item.saveProfilePhoto !== false
+            )
+            : pending;
+
+    const entry = {
         id:
             crypto.randomUUID(),
 
@@ -3293,12 +3309,16 @@ async function setPendingPhotoDelete(
 
         createdAt:
             Date.now()
-    });
+    };
+
+    cleaned.push(
+        entry
+    );
 
     await CACHE(env).put(
         key,
         JSON.stringify(
-            pending.slice(-10)
+            cleaned.slice(-10)
         ),
         {
             expirationTtl:
@@ -3306,7 +3326,7 @@ async function setPendingPhotoDelete(
         }
     );
 
-    return pending.at(-1);
+    return entry;
 }
 
 async function deletePendingPhotoDelete(
@@ -4540,13 +4560,6 @@ async function handleNewChatPhoto(
                 chatId
             );
 
-        /*
-         * Library Apply sets saveProfilePhoto
-         * to false. Do not archive that photo.
-         *
-         * Crop operations leave this true,
-         * so those photos continue to be saved.
-         */
         const shouldSave =
             pending
                 ? pending.saveProfilePhoto !== false
@@ -4572,22 +4585,18 @@ async function handleNewChatPhoto(
     }
 
     /*
-     * Only consume pending operations for
-     * operations that save the resulting photo.
+     * Every service message consumes exactly
+     * one pending operation.
      *
-     * Library Apply operations intentionally
-     * remain available for subsequent rapid
-     * new_chat_photo service messages.
+     * This prevents old Library Apply
+     * operations from affecting later Crop
+     * operations.
      */
-    if (
-        pending.saveProfilePhoto !== false
-    ) {
-        await deletePendingPhotoDelete(
-            env,
-            chatId,
-            pending.id
-        );
-    }
+    await deletePendingPhotoDelete(
+        env,
+        chatId,
+        pending.id
+    );
 
     if (
         !pending.deleteNewChatPhoto
