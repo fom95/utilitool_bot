@@ -3251,6 +3251,18 @@ function pendingPhotoDeleteKey(chatId) {
     return `delete_new_chat_photo:${String(chatId)}`;
 }
 
+async function getPendingPhotoDeletes(env, chatId) {
+    const value =
+        await CACHE(env).get(
+            pendingPhotoDeleteKey(chatId),
+            "json"
+        );
+
+    return Array.isArray(value)
+        ? value
+        : [];
+}
+
 async function setPendingPhotoDelete(
     env,
     chatId,
@@ -3258,60 +3270,89 @@ async function setPendingPhotoDelete(
     deleteNewChatPhoto = false,
     saveProfilePhoto = true
 ) {
+    const key =
+        pendingPhotoDeleteKey(chatId);
+
+    const pending =
+        await getPendingPhotoDeletes(
+            env,
+            chatId
+        );
+
+    pending.push({
+        id:
+            crypto.randomUUID(),
+
+        chatId,
+
+        userId,
+
+        deleteNewChatPhoto,
+
+        saveProfilePhoto,
+
+        createdAt:
+            Date.now()
+    });
+
     await CACHE(env).put(
-        pendingPhotoDeleteKey(chatId),
-        JSON.stringify({
-            chatId,
-            userId,
-            deleteNewChatPhoto,
-            saveProfilePhoto,
-            createdAt:
-                Date.now(),
-            expiresAt:
-                Date.now() + 15000
-        }),
+        key,
+        JSON.stringify(
+            pending.slice(-10)
+        ),
         {
             expirationTtl:
-                20
+                60
         }
     );
-}
 
-async function getPendingPhotoDelete(
-    env,
-    chatId
-) {
-    const pending =
-        await CACHE(env).get(
-            pendingPhotoDeleteKey(chatId),
-            "json"
-        );
-
-    if (!pending) {
-        return null;
-    }
-
-    if (
-        pending.expiresAt &&
-        Date.now() >
-            pending.expiresAt
-    ) {
-        await CACHE(env).delete(
-            pendingPhotoDeleteKey(chatId)
-        );
-
-        return null;
-    }
-
-    return pending;
+    return pending.at(-1);
 }
 
 async function deletePendingPhotoDelete(
     env,
-    chatId
+    chatId,
+    pendingId = null
 ) {
-    await CACHE(env).delete(
-        pendingPhotoDeleteKey(chatId)
+    const key =
+        pendingPhotoDeleteKey(chatId);
+
+    const pending =
+        await getPendingPhotoDeletes(
+            env,
+            chatId
+        );
+
+    if (!pending.length) {
+        return;
+    }
+
+    const remaining =
+        pendingId
+            ? pending.filter(
+                item =>
+                    item.id !==
+                    pendingId
+            )
+            : pending.slice(1);
+
+    if (!remaining.length) {
+        await CACHE(env).delete(
+            key
+        );
+
+        return;
+    }
+
+    await CACHE(env).put(
+        key,
+        JSON.stringify(
+            remaining
+        ),
+        {
+            expirationTtl:
+                60
+        }
     );
 }
 
@@ -4478,11 +4519,16 @@ async function handleNewChatPhoto(
         return false;
     }
 
-    const pending =
-        await getPendingPhotoDelete(
+    const pendingList =
+        await getPendingPhotoDeletes(
             env,
             chatId
         );
+
+    const pending =
+        pendingList.length
+            ? pendingList[0]
+            : null;
 
     try {
         const {
@@ -4494,6 +4540,13 @@ async function handleNewChatPhoto(
                 chatId
             );
 
+        /*
+         * Library Apply sets saveProfilePhoto
+         * to false. Do not archive that photo.
+         *
+         * Crop operations leave this true,
+         * so those photos continue to be saved.
+         */
         const shouldSave =
             pending
                 ? pending.saveProfilePhoto !== false
@@ -4518,36 +4571,59 @@ async function handleNewChatPhoto(
         return true;
     }
 
+    /*
+     * Only consume pending operations for
+     * operations that save the resulting photo.
+     *
+     * Library Apply operations intentionally
+     * remain available for subsequent rapid
+     * new_chat_photo service messages.
+     */
     if (
-        pending.deleteNewChatPhoto
+        pending.saveProfilePhoto !== false
     ) {
-        const messageId =
-            message.message_id;
-
-        if (messageId) {
-            try {
-                await deleteMessage(
-                    env,
-                    chatId,
-                    messageId
-                );
-            } catch (error) {
-                console.error(
-                    "Unable to delete new profile-photo message:",
-                    error
-                );
-            }
-        }
+        await deletePendingPhotoDelete(
+            env,
+            chatId,
+            pending.id
+        );
     }
 
-    /*
-     * Keep the pending state alive briefly.
-     *
-     * Library Apply can generate multiple
-     * service messages when changes happen
-     * rapidly. Do not consume the state after
-     * the first one.
-     */
+    if (
+        !pending.deleteNewChatPhoto
+    ) {
+        return true;
+    }
+
+    if (
+        pending.userId &&
+        message.from?.id &&
+        Number(pending.userId) !==
+            Number(message.from.id)
+    ) {
+        return true;
+    }
+
+    const messageId =
+        message.message_id;
+
+    if (!messageId) {
+        return true;
+    }
+
+    try {
+        await deleteMessage(
+            env,
+            chatId,
+            messageId
+        );
+    } catch (error) {
+        console.error(
+            "Unable to delete new profile-photo message:",
+            error
+        );
+    }
+
     return true;
 }
 
