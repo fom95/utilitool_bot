@@ -835,21 +835,18 @@ function showLoading(text) {
     );
 }
 
-function setPhotoButtonLock(button, locked, remainingMs) {
-    if (!locked || remainingMs <= 0) {
+function setPhotoButtonLock(button,locked,remainingMs){
+    if(!locked||remainingMs<=0){
         button.classList.remove("photoLocked");
         button.removeAttribute("data-lock-text");
-        button.disabled = false;
+        button.disabled=false;
         return;
     }
 
-    const seconds =
-        Math.ceil(remainingMs / 1000);
-
+    const seconds=Math.ceil(remainingMs/1000);
     button.classList.add("photoLocked");
-    button.dataset.lockText =
-        `Please wait ${seconds}s`;
-    button.disabled = true;
+    button.dataset.lockText=`Please wait ${seconds}s`;
+    button.disabled=true;
 }
 
 /* =========================
@@ -901,65 +898,54 @@ const libraryClose =
         "libraryClose"
     );
 
-let libraryData =
-    null;
+let libraryData=null;
+let selectedLibraryPhoto=null;
+let libraryLockTimer=null;
 
-let selectedLibraryPhoto =
-    null;
+function startLibraryPhotoLock(lockedUntil){
+    if(libraryLockTimer){
+        clearTimeout(libraryLockTimer);
+        libraryLockTimer=null;
+    }
 
-let libraryLockTimer = null;
+    function update(){
+        const remainingMs=Math.max(0,lockedUntil-Date.now());
 
-async function updateLibraryPhotoLock() {
-    try {
-        const response = await fetch(
-            "/api/library/status",
-            {
-                headers: {
-                    "X-Telegram-Init-Data":
-                        tg.initData
-                },
-                cache: "no-store"
-            }
-        );
-
-        const result =
-            await response.json().catch(
-                () => ({})
-            );
-
-        if (
-            !response.ok ||
-            !result.success
-        ) {
+        if(remainingMs<=0){
+            setPhotoButtonLock(libraryApply,false,0);
+            libraryLockTimer=null;
             return;
         }
 
-        setPhotoButtonLock(
-            libraryApply,
-            !!result.locked,
-            Number(result.remainingMs || 0)
-        );
+        setPhotoButtonLock(libraryApply,true,remainingMs);
 
-        if (result.locked) {
-            scheduleLibraryLockUpdate();
-        }
-    } catch (error) {
-        console.error(
-            "Unable to check photo lock:",
-            error
-        );
+        libraryLockTimer=setTimeout(update,250);
     }
+
+    update();
 }
 
-function scheduleLibraryLockUpdate() {
-    if (libraryLockTimer) {
-        clearTimeout(libraryLockTimer);
-    }
+async function updateLibraryPhotoLock(){
+    try{
+        const response=await fetch("/api/library/status",{
+            headers:{"X-Telegram-Init-Data":tg.initData},
+            cache:"no-store"
+        });
 
-    libraryLockTimer =
-        setTimeout(async () => {
-            await updateLibraryPhotoLock();
-        }, 1000);
+        const result=await response.json().catch(()=>({}));
+
+        if(!response.ok||!result.success){
+            return;
+        }
+
+        if(result.locked&&result.lockedUntil){
+            startLibraryPhotoLock(Number(result.lockedUntil));
+        }else{
+            setPhotoButtonLock(libraryApply,false,0);
+        }
+    }catch(error){
+        console.error("Unable to check photo lock:",error);
+    }
 }
 
 function libraryPhotoUrl(photo) {
@@ -1656,60 +1642,55 @@ const cancelButton =
         "cancel"
     );
 
-let cropLockTimer = null;
+let cropLockTimer=null;
 
-async function updateCropPhotoLock() {
-    try {
-        const response =
-            await fetch(
-                `/api/crop/status?session=${encodeURIComponent(session)}`,
-                {
-                    headers: {
-                        "X-Telegram-Init-Data":
-                            tg.initData
-                    },
-                    cache: "no-store"
-                }
-            );
+function startCropPhotoLock(lockedUntil){
+    if(cropLockTimer){
+        clearTimeout(cropLockTimer);
+        cropLockTimer=null;
+    }
 
-        const result =
-            await response.json().catch(
-                () => ({})
-            );
+    function update(){
+        const remainingMs=Math.max(0,lockedUntil-Date.now());
 
-        if (
-            !response.ok ||
-            !result.success
-        ) {
+        if(remainingMs<=0){
+            setPhotoButtonLock(applyButton,false,0);
+            cropLockTimer=null;
             return;
         }
 
-        setPhotoButtonLock(
-            applyButton,
-            !!result.locked,
-            Number(result.remainingMs || 0)
-        );
+        setPhotoButtonLock(applyButton,true,remainingMs);
 
-        if (result.locked) {
-            scheduleCropLockUpdate();
-        }
-    } catch (error) {
-        console.error(
-            "Unable to check photo lock:",
-            error
-        );
+        cropLockTimer=setTimeout(update,250);
     }
+
+    update();
 }
 
-function scheduleCropLockUpdate() {
-    if (cropLockTimer) {
-        clearTimeout(cropLockTimer);
-    }
+async function updateCropPhotoLock(){
+    try{
+        const response=await fetch(
+            `/api/crop/status?session=${encodeURIComponent(session)}`,
+            {
+                headers:{"X-Telegram-Init-Data":tg.initData},
+                cache:"no-store"
+            }
+        );
 
-    cropLockTimer =
-        setTimeout(async () => {
-            await updateCropPhotoLock();
-        }, 1000);
+        const result=await response.json().catch(()=>({}));
+
+        if(!response.ok||!result.success){
+            return;
+        }
+
+        if(result.locked&&result.lockedUntil){
+            startCropPhotoLock(Number(result.lockedUntil));
+        }else{
+            setPhotoButtonLock(applyButton,false,0);
+        }
+    }catch(error){
+        console.error("Unable to check photo lock:",error);
+    }
 }
 
 let image =
