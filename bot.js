@@ -1674,69 +1674,26 @@ async function handleSetArchive(e,t){
         return!0;
     }
 
-    const n=t.from?.id;
+    const n=await getChatOwner(e,a.id);
 
-    if(
-        "channel"!==a.type &&
-        !n
-    ){
-        return!1;
-    }
-
-    if("channel"!==a.type){
-        const r=await getChatOwner(e,a.id);
-
-        if(
-            !r?.id ||
-            Number(r.id)!==Number(n)
-        ){
-            await sendMessage(
-                e,
-                a.id,
-                "Only the owner of this chat can make it the profile photo archive."
-            );
-            return!0;
-        }
-    }else{
-        const r=await telegram(
+    if(!n?.id){
+        await sendMessage(
             e,
-            "getChatAdministrators",
-            {chat_id:a.id}
+            a.id,
+            "Unable to determine the owner of this chat."
         );
-
-        const o=r.find(
-            e=>e?.user?.id&&
-            "administrator"===e.status&&
-            Number(e.user.id)!==Number((await BOT_TOKEN(e)).split(":")[0])
-        );
-
-        if(!o){
-            await sendMessage(
-                e,
-                a.id,
-                "I need to be an administrator in this channel before it can be used as an archive."
-            );
-            return!0;
-        }
+        return!0;
     }
 
-    const r=await getProfileArchive(
-        e,
-        n||String(a.id)
-    );
+    const r=await getProfileArchive(e,n.id);
 
     if(
         r?.chatId &&
         String(r.chatId)!==String(a.id)
     ){
-        const o=await getProfileLibrary(
-            e,
-            n||String(a.id)
-        );
-
-        const s=createMenuContext(e,{
+        const o=createMenuContext(e,{
             chat:a,
-            user:t.from||null,
+            user:t.from||n,
             message:t,
             state:await getMenuState(e,a.id),
             data:{
@@ -1755,6 +1712,7 @@ async function handleSetArchive(e,t){
                 archiveChatId:r.chatId,
                 archiveTitle:r.title||null,
                 archiveUsername:r.username||null,
+                archiveOwnerId:Number(n.id),
                 newArchiveChatId:a.id,
                 newArchiveChatType:a.type||null,
                 newArchiveTitle:a.title||null,
@@ -1762,14 +1720,14 @@ async function handleSetArchive(e,t){
             }
         );
 
-        await s.edit("setarchive");
+        await o.edit("setarchive");
 
         return!0;
     }
 
     await setProfileArchive(
         e,
-        n||String(a.id),
+        n.id,
         {
             chatId:a.id,
             chatType:a.type,
