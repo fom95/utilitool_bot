@@ -1041,6 +1041,7 @@ const Menus={
                 [Button("Bye",{action:"bye"})]
             ]
     }),
+
     library:Menu({
         text:"Choose a saved profile photo to use for this chat.",
         buttons:e=>[
@@ -1050,18 +1051,21 @@ const Menus={
             Button("Cancel",{action:"library_cancel"})
         ]
     }),
+
     bye:Menu({
         text:"Are you sure you want me to leave?",
         buttons:[
             [Button("Yes",{action:"bye_confirm"}),Button("No",{action:"bye_cancel"})]
         ]
     }),
+
     photo:Menu({
         text:"Reply to the image or image document you want to use with @utilitool_bot.",
         buttons:[
             Button("Cancel",{action:"cancel_photo"})
         ]
     }),
+
     crop:Menu({
         text:"Position the square over the part of the image you want to use, then press Apply.",
         buttons:e=>[
@@ -1071,13 +1075,21 @@ const Menus={
             Button("Cancel",{action:e=>`cancel_photo:${e.data.sessionId}`})
         ]
     }),
+
     setarchive:Menu({
         text:e=>`You already have a profile photo archive set to:\n\n${e.data.archiveTitle||e.data.archiveUsername||String(e.data.archiveChatId)}\n\nDo you want to replace it with this chat?`,
         buttons:[
-            [
-                Button("Yes, replace it",{action:"setarchive_confirm"}),
-                Button("Cancel",{action:"setarchive_cancel"})
-            ]
+            [Button("Yes, replace it",{action:"setarchive_confirm"})],
+            [Button("Cancel",{action:"setarchive_cancel"})]
+        ]
+    }),
+
+    setarchive_transfer:Menu({
+        text:"Your existing archive has saved profile photos.\n\nDo you want to transfer those photos to the new archive?",
+        buttons:[
+            [Button("Yes, transfer photos",{action:"setarchive_transfer_confirm"})],
+            [Button("Replace without transferring",{action:"setarchive_replace"})],
+            [Button("Cancel",{action:"setarchive_cancel"})]
         ]
     })
 };
@@ -1194,46 +1206,138 @@ const Actions={
     },
 
     setarchive_confirm:async e=>{
-        const chat=e.chat;
-
-        if(!chat?.id)
+        const t=e.chat;
+    
+        if(!t?.id)
             return;
-
-        if(
-            "group"!==chat.type &&
-            "supergroup"!==chat.type &&
-            "channel"!==chat.type
-        ){
+    
+        const a=await getProfileArchive(e.env,e.userId);
+    
+        if(!a?.chatId){
+            await setProfileArchive(
+                e.env,
+                e.userId,
+                {
+                    chatId:t.id,
+                    chatType:t.type||null,
+                    title:t.title||null,
+                    username:t.username||null,
+                    updatedAt:Date.now()
+                }
+            );
+    
             await e.edit("base");
             return;
         }
-
-        const owner=await getChatOwner(e.env,chat.id);
-
-        if(
-            !owner?.id ||
-            Number(owner.id)!==Number(e.userId)
-        ){
+    
+        const n=await getProfileLibrary(e.env,e.userId);
+    
+        if(!n.length){
+            await setProfileArchive(
+                e.env,
+                e.userId,
+                {
+                    chatId:t.id,
+                    chatType:t.type||null,
+                    title:t.title||null,
+                    username:t.username||null,
+                    updatedAt:Date.now()
+                }
+            );
+    
             await e.edit("base");
             return;
         }
+    
+        await e.setState({
+            mode:"setarchive_transfer",
+            archiveChatId:a.chatId,
+            archiveChatType:a.chatType||null,
+            archiveTitle:a.title||null,
+            archiveUsername:a.username||null,
+            newArchiveChatId:t.id,
+            newArchiveChatType:t.type||null,
+            newArchiveTitle:t.title||null,
+            newArchiveUsername:t.username||null
+        });
+    
+        await e.edit("setarchive_transfer");
+    },
+
+    setarchive_transfer_confirm:async e=>{
+        const t=e.chat,
+            a=e.state;
+
+        if(!t?.id||!a?.archiveChatId)
+            return;
+
+        await e.edit("base");
+
+        try{
+            const n=await transferProfileArchive(
+                e.env,
+                e.userId,
+                a.archiveChatId,
+                t.id
+            );
+
+            await setProfileArchive(
+                e.env,
+                e.userId,
+                {
+                    chatId:t.id,
+                    chatType:t.type||null,
+                    title:t.title||null,
+                    username:t.username||null,
+                    updatedAt:Date.now()
+                }
+            );
+
+            await e.send(
+                `✅ Profile photo archive changed.\n\nTransferred ${n.transferred} photo${1===n.transferred?"":"s"} to the new archive.`
+            );
+        }catch(t){
+            console.error("PROFILE ARCHIVE TRANSFER ERROR:",t);
+
+            await e.send(
+                `⚠️ The archive was not changed because the photo transfer failed.\n\n${t instanceof Error?t.message:String(t)}`
+            );
+        }
+    },
+
+    setarchive_replace:async e=>{
+        const t=e.chat;
+
+        if(!t?.id)
+            return;
 
         await setProfileArchive(
             e.env,
-            owner.id,
+            e.userId,
             {
-                chatId:chat.id,
-                chatType:chat.type,
-                title:chat.title||null,
-                username:chat.username||null,
+                chatId:t.id,
+                chatType:t.type||null,
+                title:t.title||null,
+                username:t.username||null,
                 updatedAt:Date.now()
             }
         );
 
         await e.edit("base");
+
+        await e.send(
+            "✅ Profile photo archive changed without transferring the existing photos."
+        );
     },
 
     setarchive_cancel:async e=>{
+        await e.setState({
+            username:e.username,
+            lastUserId:Number(e.userId),
+            lastUsername:e.user?.username||null,
+            mode:"base"
+        });
+
         await e.edit("base");
     }
 };
@@ -1552,10 +1656,9 @@ async function handleStartCommand(
 }
 
 async function handleSetArchive(e,t){
-    const a=t.chat,
-        n=t.from;
+    const a=t.chat;
 
-    if(!a?.id||!n?.id)
+    if(!a?.id)
         return!1;
 
     if(
@@ -1571,46 +1674,102 @@ async function handleSetArchive(e,t){
         return!0;
     }
 
-    const r=await getChatOwner(e,a.id);
+    const n=t.from?.id;
 
     if(
-        !r?.id ||
-        Number(r.id)!==Number(n.id)
+        "channel"!==a.type &&
+        !n
     ){
-        await sendMessage(
-            e,
-            a.id,
-            "Only the owner of this chat can make it the profile photo archive."
-        );
-        return!0;
+        return!1;
     }
 
-    const o=await getProfileArchive(e,n.id);
+    if("channel"!==a.type){
+        const r=await getChatOwner(e,a.id);
+
+        if(
+            !r?.id ||
+            Number(r.id)!==Number(n)
+        ){
+            await sendMessage(
+                e,
+                a.id,
+                "Only the owner of this chat can make it the profile photo archive."
+            );
+            return!0;
+        }
+    }else{
+        const r=await telegram(
+            e,
+            "getChatAdministrators",
+            {chat_id:a.id}
+        );
+
+        const o=r.find(
+            e=>e?.user?.id&&
+            "administrator"===e.status&&
+            Number(e.user.id)!==Number((await BOT_TOKEN(e)).split(":")[0])
+        );
+
+        if(!o){
+            await sendMessage(
+                e,
+                a.id,
+                "I need to be an administrator in this channel before it can be used as an archive."
+            );
+            return!0;
+        }
+    }
+
+    const r=await getProfileArchive(
+        e,
+        n||String(a.id)
+    );
 
     if(
-        o?.chatId &&
-        String(o.chatId)!==String(a.id)
+        r?.chatId &&
+        String(r.chatId)!==String(a.id)
     ){
-        const s=await getMenuState(e,a.id);
+        const o=await getProfileLibrary(
+            e,
+            n||String(a.id)
+        );
 
-        await createMenu(e,{
-            menu:"setarchive",
+        const s=createMenuContext(e,{
             chat:a,
-            user:n,
-            state:s,
+            user:t.from||null,
+            message:t,
+            state:await getMenuState(e,a.id),
             data:{
-                archiveChatId:o.chatId,
-                archiveTitle:o.title||null,
-                archiveUsername:o.username||null
+                archiveChatId:r.chatId,
+                archiveTitle:r.title||null,
+                archiveUsername:r.username||null
             }
         });
+
+        await saveMenuState(
+            e,
+            a.id,
+            {
+                ...(await getMenuState(e,a.id)||{}),
+                mode:"setarchive_confirm",
+                archiveChatId:r.chatId,
+                archiveTitle:r.title||null,
+                archiveUsername:r.username||null,
+                newArchiveChatId:a.id,
+                newArchiveChatType:a.type||null,
+                newArchiveTitle:a.title||null,
+                newArchiveUsername:a.username||null
+            }
+        );
+
+        await s.edit("setarchive");
 
         return!0;
     }
 
     await setProfileArchive(
         e,
-        n.id,
+        n||String(a.id),
         {
             chatId:a.id,
             chatType:a.type,
@@ -3324,6 +3483,93 @@ async function saveProfileLibrary(
     );
 
     return library;
+}
+
+async function transferProfileArchive(e,t,a,n){
+    if(!a||!n)
+        throw new Error("Missing archive chat ID.");
+
+    if(String(a)===String(n))
+        return {transferred:0};
+
+    const r=await getProfileLibrary(e,t);
+
+    if(!r.length)
+        return {transferred:0};
+
+    const o=r.filter(e=>
+        String(e.archiveChatId)===String(a) &&
+        e.archiveMessageId
+    );
+
+    if(!o.length)
+        return {transferred:0};
+
+    const s=[];
+
+    try{
+        for(const r of o){
+            const o=await telegram(e,"copyMessage",{
+                chat_id:n,
+                from_chat_id:a,
+                message_id:r.archiveMessageId
+            });
+
+            if(!o?.message_id)
+                throw new Error(
+                    `Telegram returned no message ID while transferring archive photo ${r.id}.`
+                );
+
+            s.push({
+                photo:r,
+                newMessageId:o.message_id
+            });
+        }
+    }catch(e){
+        for(const a of s){
+            try{
+                await deleteMessage(e,n,a.newMessageId);
+            }catch(e){
+                console.error(
+                    "Unable to clean up partially transferred archive message:",
+                    e
+                );
+            }
+        }
+
+        throw e;
+    }
+
+    const i=r.map(e=>{
+        const t=s.find(t=>t.photo.id===e.id);
+
+        if(!t)
+            return e;
+
+        return {
+            ...e,
+            archiveChatId:n,
+            archiveMessageId:t.newMessageId
+        };
+    });
+
+    await saveProfileLibrary(e,t,i);
+
+    for(const r of s){
+        try{
+            await deleteMessage(e,a,r.photo.archiveMessageId);
+        }catch(e){
+            console.error(
+                "Unable to delete old archive message:",
+                r.photo.archiveMessageId,
+                e
+            );
+        }
+    }
+
+    return {
+        transferred:s.length
+    };
 }
 
 async function getProfileOwnerChats(
