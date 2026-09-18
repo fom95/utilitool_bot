@@ -3069,88 +3069,135 @@ async function handleLibraryApply(
     env,
     request
 ) {
-    const {
-        chatId,
-        owner,
-        auth
-    } =
-        await authorizeLibrary(
+    try {
+        const {
+            chatId,
+            owner,
+            auth
+        } =
+            await authorizeLibrary(
+                env,
+                request
+            );
+
+        const data =
+            await request.json();
+
+        const photoId =
+            data?.id;
+
+        const deleteNewChatPhoto =
+            data?.deleteNewChatPhoto !== false;
+
+        if (!photoId) {
+            return json(
+                {
+                    success: false,
+                    error:
+                        "Missing photo ID."
+                },
+                400
+            );
+        }
+
+        const library =
+            await getProfileLibrary(
+                env,
+                owner.id
+            );
+
+        const photo =
+            library.find(
+                item =>
+                    String(item.id) ===
+                    String(photoId)
+            );
+
+        if (!photo?.fileId) {
+            return json(
+                {
+                    success: false,
+                    error:
+                        "Photo not found."
+                },
+                404
+            );
+        }
+
+        const {
+            response
+        } =
+            await downloadTelegramFile(
+                env,
+                photo.fileId
+            );
+
+        if (!response.ok) {
+            throw new Error(
+                `Telegram photo download failed: ${response.status}`
+            );
+        }
+
+        const blob =
+            await response.blob();
+
+        /*
+         * Install the Library suppression state
+         * BEFORE changing the chat photo.
+         *
+         * Library changes must not be archived
+         * again when Telegram sends new_chat_photo.
+         */
+        await setPendingPhotoDelete(
             env,
-            request
+            chatId,
+            auth.user.id,
+            deleteNewChatPhoto,
+            false
         );
 
-    const data =
-        await request.json();
+        try {
+            await setChatPhoto(
+                env,
+                chatId,
+                blob
+            );
+        } catch (error) {
+            /*
+             * The photo change itself failed.
+             *
+             * Remove the pending suppression so
+             * it cannot affect a later real photo
+             * change.
+             */
+            await deletePendingPhotoDelete(
+                env,
+                chatId
+            );
 
-    const photoId =
-        data?.id;
+            throw error;
+        }
 
-    const deleteNewChatPhoto =
-        data?.deleteNewChatPhoto !== false;
+        return json({
+            success: true
+        });
+    } catch (error) {
+        console.error(
+            "LIBRARY APPLY ERROR:",
+            error
+        );
 
-    if (!photoId) {
         return json(
             {
                 success: false,
                 error:
-                    "Missing photo ID."
+                    error instanceof Error
+                        ? error.message
+                        : String(error)
             },
-            400
+            502
         );
     }
-
-    const library =
-        await getProfileLibrary(
-            env,
-            owner.id
-        );
-
-    const photo =
-        library.find(
-            item =>
-                String(item.id) ===
-                String(photoId)
-        );
-
-    if (!photo?.fileId) {
-        return json(
-            {
-                success: false,
-                error:
-                    "Photo not found."
-            },
-            404
-        );
-    }
-
-    const {
-        response
-    } =
-        await downloadTelegramFile(
-            env,
-            photo.fileId
-        );
-
-    const blob =
-        await response.blob();
-
-    await setPendingPhotoDelete(
-        env,
-        chatId,
-        auth.user.id,
-        deleteNewChatPhoto,
-        false
-    );
-
-    await setChatPhoto(
-        env,
-        chatId,
-        blob
-    );
-
-    return json({
-        success: true
-    });
 }
 
 async function handleLibraryDelete(
@@ -3247,7 +3294,9 @@ async function handleLibraryDelete(
 // KV HELPERS
 // ============================================================
 
-function pendingPhotoDeleteKey(chatId) {
+function pendingPhotoDeleteKey(
+    chatId
+) {
     return `delete_new_chat_photo:${String(chatId)}`;
 }
 
@@ -3257,7 +3306,9 @@ async function getPendingPhotoDelete(
 ) {
     const pending =
         await CACHE(env).get(
-            pendingPhotoDeleteKey(chatId),
+            pendingPhotoDeleteKey(
+                chatId
+            ),
             "json"
         );
 
@@ -3271,7 +3322,9 @@ async function getPendingPhotoDelete(
             pending.expiresAt
     ) {
         await CACHE(env).delete(
-            pendingPhotoDeleteKey(chatId)
+            pendingPhotoDeleteKey(
+                chatId
+            )
         );
 
         return null;
@@ -3305,14 +3358,6 @@ async function setPendingPhotoDelete(
         createdAt:
             now,
 
-        /*
-         * Keep Library Apply suppression alive
-         * long enough for Telegram's delayed
-         * service messages.
-         *
-         * Crop operations only need the first
-         * resulting service message.
-         */
         expiresAt:
             now +
             (
@@ -3323,7 +3368,9 @@ async function setPendingPhotoDelete(
     };
 
     await CACHE(env).put(
-        pendingPhotoDeleteKey(chatId),
+        pendingPhotoDeleteKey(
+            chatId
+        ),
         JSON.stringify(
             pending
         ),
@@ -3343,7 +3390,9 @@ async function deletePendingPhotoDelete(
     chatId
 ) {
     await CACHE(env).delete(
-        pendingPhotoDeleteKey(chatId)
+        pendingPhotoDeleteKey(
+            chatId
+        )
     );
 }
 
@@ -4522,19 +4571,25 @@ async function handleNewChatPhoto(
             chatId,
             messageId:
                 message.message_id,
+
             pending:
                 pending
                     ? {
                         id:
                             pending.id,
+
                         userId:
                             pending.userId,
+
                         deleteNewChatPhoto:
                             pending.deleteNewChatPhoto,
+
                         saveProfilePhoto:
                             pending.saveProfilePhoto,
+
                         createdAt:
                             pending.createdAt,
+
                         expiresAt:
                             pending.expiresAt
                     }
@@ -4542,22 +4597,52 @@ async function handleNewChatPhoto(
         })
     );
 
+    /*
+     * Resolve the owner regardless of whether
+     * this photo came from the Library or Crop.
+     */
+    let owner;
+    let chat;
+
     try {
-        const {
+        ({
             owner,
             chat
         } =
             await resolveProfileLibraryOwner(
                 env,
                 chatId
-            );
+            ));
+    } catch (error) {
+        console.error(
+            "Unable to resolve profile library owner:",
+            error
+        );
 
-        const shouldSave =
-            pending
-                ? pending.saveProfilePhoto !== false
-                : true;
+        return true;
+    }
 
-        if (shouldSave) {
+    /*
+     * Library Apply:
+     *
+     * saveProfilePhoto === false means this
+     * service message must NOT create another
+     * archive entry.
+     */
+    if (
+        pending?.saveProfilePhoto === false
+    ) {
+        console.log(
+            "NEW CHAT PHOTO: suppressing archive save for Library Apply"
+        );
+    } else {
+        /*
+         * No pending operation means this was
+         * an ordinary Telegram profile-photo
+         * change, so retain the old behavior
+         * and archive it.
+         */
+        try {
             await addProfileLibraryPhoto(
                 env,
                 owner.id,
@@ -4568,18 +4653,18 @@ async function handleNewChatPhoto(
             console.log(
                 "NEW CHAT PHOTO: saved to archive"
             );
-        } else {
-            console.log(
-                "NEW CHAT PHOTO: library apply, not saving to archive"
+        } catch (error) {
+            console.error(
+                "Unable to save profile photo to owner library:",
+                error
             );
         }
-    } catch (error) {
-        console.error(
-            "Unable to save profile photo to owner library:",
-            error
-        );
     }
 
+    /*
+     * No pending state means there is nothing
+     * telling us to delete the service message.
+     */
     if (!pending) {
         console.log(
             "NEW CHAT PHOTO: no pending operation"
@@ -4589,12 +4674,10 @@ async function handleNewChatPhoto(
     }
 
     /*
-     * Library Apply:
-     *
-     * Keep the pending state alive so that
-     * multiple rapid profile-photo changes
-     * can all be recognized as Library Apply
-     * operations.
+     * Library Apply states deliberately remain
+     * alive for their expiration period because
+     * multiple rapid Library changes can each
+     * generate their own service message.
      */
     if (
         pending.saveProfilePhoto === false
@@ -4603,7 +4686,7 @@ async function handleNewChatPhoto(
             !pending.deleteNewChatPhoto
         ) {
             console.log(
-                "NEW CHAT PHOTO: library apply, deletion disabled"
+                "NEW CHAT PHOTO: Library deletion disabled"
             );
 
             return true;
@@ -4624,12 +4707,12 @@ async function handleNewChatPhoto(
             );
 
             console.log(
-                "NEW CHAT PHOTO: deleted library service message:",
+                "NEW CHAT PHOTO: deleted Library service message:",
                 messageId
             );
         } catch (error) {
             console.error(
-                "Unable to delete new profile-photo message:",
+                "Unable to delete Library new_chat_photo message:",
                 error
             );
         }
@@ -4638,10 +4721,10 @@ async function handleNewChatPhoto(
     }
 
     /*
-     * Crop / Reply:
+     * Crop / Reply operation.
      *
-     * This operation is consumed after its
-     * resulting service message is handled.
+     * This state is consumed after its
+     * corresponding service message.
      */
     await deletePendingPhotoDelete(
         env,
@@ -4678,12 +4761,12 @@ async function handleNewChatPhoto(
         );
 
         console.log(
-            "NEW CHAT PHOTO: deleted crop service message:",
+            "NEW CHAT PHOTO: deleted Crop service message:",
             messageId
         );
     } catch (error) {
         console.error(
-            "Unable to delete new profile-photo message:",
+            "Unable to delete Crop new_chat_photo message:",
             error
         );
     }
