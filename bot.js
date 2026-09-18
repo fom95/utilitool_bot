@@ -3251,16 +3251,33 @@ function pendingPhotoDeleteKey(chatId) {
     return `delete_new_chat_photo:${String(chatId)}`;
 }
 
-async function getPendingPhotoDeletes(env, chatId) {
-    const value =
+async function getPendingPhotoDelete(
+    env,
+    chatId
+) {
+    const pending =
         await CACHE(env).get(
             pendingPhotoDeleteKey(chatId),
             "json"
         );
 
-    return Array.isArray(value)
-        ? value
-        : [];
+    if (!pending) {
+        return null;
+    }
+
+    if (
+        pending.expiresAt &&
+        Date.now() >
+            pending.expiresAt
+    ) {
+        await CACHE(env).delete(
+            pendingPhotoDeleteKey(chatId)
+        );
+
+        return null;
+    }
+
+    return pending;
 }
 
 async function setPendingPhotoDelete(
@@ -3270,32 +3287,10 @@ async function setPendingPhotoDelete(
     deleteNewChatPhoto = false,
     saveProfilePhoto = true
 ) {
-    const key =
-        pendingPhotoDeleteKey(chatId);
+    const now =
+        Date.now();
 
-    const pending =
-        await getPendingPhotoDeletes(
-            env,
-            chatId
-        );
-
-    /*
-     * A crop/new-photo operation must never
-     * sit behind stale Library Apply entries.
-     *
-     * Library entries are only suppression
-     * operations, while crop entries need to
-     * save the resulting photo.
-     */
-    const cleaned =
-        saveProfilePhoto
-            ? pending.filter(
-                item =>
-                    item.saveProfilePhoto !== false
-            )
-            : pending;
-
-    const entry = {
+    const pending = {
         id:
             crypto.randomUUID(),
 
@@ -3308,71 +3303,47 @@ async function setPendingPhotoDelete(
         saveProfilePhoto,
 
         createdAt:
-            Date.now()
+            now,
+
+        /*
+         * Keep Library Apply suppression alive
+         * long enough for Telegram's delayed
+         * service messages.
+         *
+         * Crop operations only need the first
+         * resulting service message.
+         */
+        expiresAt:
+            now +
+            (
+                saveProfilePhoto
+                    ? 15000
+                    : 30000
+            )
     };
 
-    cleaned.push(
-        entry
-    );
-
     await CACHE(env).put(
-        key,
+        pendingPhotoDeleteKey(chatId),
         JSON.stringify(
-            cleaned.slice(-10)
+            pending
         ),
         {
             expirationTtl:
-                60
+                saveProfilePhoto
+                    ? 20
+                    : 35
         }
     );
 
-    return entry;
+    return pending;
 }
 
 async function deletePendingPhotoDelete(
     env,
-    chatId,
-    pendingId = null
+    chatId
 ) {
-    const key =
-        pendingPhotoDeleteKey(chatId);
-
-    const pending =
-        await getPendingPhotoDeletes(
-            env,
-            chatId
-        );
-
-    if (!pending.length) {
-        return;
-    }
-
-    const remaining =
-        pendingId
-            ? pending.filter(
-                item =>
-                    item.id !==
-                    pendingId
-            )
-            : pending.slice(1);
-
-    if (!remaining.length) {
-        await CACHE(env).delete(
-            key
-        );
-
-        return;
-    }
-
-    await CACHE(env).put(
-        key,
-        JSON.stringify(
-            remaining
-        ),
-        {
-            expirationTtl:
-                60
-        }
+    await CACHE(env).delete(
+        pendingPhotoDeleteKey(chatId)
     );
 }
 
@@ -4539,16 +4510,37 @@ async function handleNewChatPhoto(
         return false;
     }
 
-    const pendingList =
-        await getPendingPhotoDeletes(
+    const pending =
+        await getPendingPhotoDelete(
             env,
             chatId
         );
 
-    const pending =
-        pendingList.length
-            ? pendingList[0]
-            : null;
+    console.log(
+        "NEW CHAT PHOTO:",
+        JSON.stringify({
+            chatId,
+            messageId:
+                message.message_id,
+            pending:
+                pending
+                    ? {
+                        id:
+                            pending.id,
+                        userId:
+                            pending.userId,
+                        deleteNewChatPhoto:
+                            pending.deleteNewChatPhoto,
+                        saveProfilePhoto:
+                            pending.saveProfilePhoto,
+                        createdAt:
+                            pending.createdAt,
+                        expiresAt:
+                            pending.expiresAt
+                    }
+                    : null
+        })
+    );
 
     try {
         const {
@@ -4572,6 +4564,14 @@ async function handleNewChatPhoto(
                 photos,
                 chat
             );
+
+            console.log(
+                "NEW CHAT PHOTO: saved to archive"
+            );
+        } else {
+            console.log(
+                "NEW CHAT PHOTO: library apply, not saving to archive"
+            );
         }
     } catch (error) {
         console.error(
@@ -4581,21 +4581,71 @@ async function handleNewChatPhoto(
     }
 
     if (!pending) {
+        console.log(
+            "NEW CHAT PHOTO: no pending operation"
+        );
+
         return true;
     }
 
     /*
-     * Every service message consumes exactly
-     * one pending operation.
+     * Library Apply:
      *
-     * This prevents old Library Apply
-     * operations from affecting later Crop
+     * Keep the pending state alive so that
+     * multiple rapid profile-photo changes
+     * can all be recognized as Library Apply
      * operations.
+     */
+    if (
+        pending.saveProfilePhoto === false
+    ) {
+        if (
+            !pending.deleteNewChatPhoto
+        ) {
+            console.log(
+                "NEW CHAT PHOTO: library apply, deletion disabled"
+            );
+
+            return true;
+        }
+
+        const messageId =
+            message.message_id;
+
+        if (!messageId) {
+            return true;
+        }
+
+        try {
+            await deleteMessage(
+                env,
+                chatId,
+                messageId
+            );
+
+            console.log(
+                "NEW CHAT PHOTO: deleted library service message:",
+                messageId
+            );
+        } catch (error) {
+            console.error(
+                "Unable to delete new profile-photo message:",
+                error
+            );
+        }
+
+        return true;
+    }
+
+    /*
+     * Crop / Reply:
+     *
+     * This operation is consumed after its
+     * resulting service message is handled.
      */
     await deletePendingPhotoDelete(
         env,
-        chatId,
-        pending.id
+        chatId
     );
 
     if (
@@ -4624,6 +4674,11 @@ async function handleNewChatPhoto(
         await deleteMessage(
             env,
             chatId,
+            messageId
+        );
+
+        console.log(
+            "NEW CHAT PHOTO: deleted crop service message:",
             messageId
         );
     } catch (error) {
